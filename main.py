@@ -71,6 +71,7 @@ class Jogador(pygame.sprite.Sprite):
         self.surf = pygame.Surface((TAM_JOGADOR, TAM_JOGADOR))
         self.surf.fill(COR_JOGADOR)
         self.rect = self.surf.get_rect(center=start_pos)
+        self.vidas = 3
 
     def movimentacao(self, dx, dy):
         self.rect.x += dx
@@ -244,7 +245,12 @@ while running:
             ctrl.update(agora_ms, carros)
         for c in list(carros):
             c.update(dt)
-        verificar_colisoes_e_reset(jog, carros, faixa_controladores)
+        houve_colisao = verificar_colisoes_e_reset(jog, carros, faixa_controladores)
+        if houve_colisao:
+            jog.vidas -= 1
+            if jog.vidas <= 0:
+                pygame.quit()
+                sys.exit()
 
     tela.fill(FUNDO)
 
@@ -269,13 +275,14 @@ while running:
             y += 36
 
     elif estado == ESTADO_JOGANDO:
-        top_zone = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+        zona_superior = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
         
-
         for c in carros:
             tela.blit(c.surf, c.rect)
         tela.blit(jog.surf, jog.rect)
 
+        texto_vidas = font.render(f"Vidas: {jog.vidas}", True, BRANCO)
+        tela.blit(texto_vidas, (10, 10))
     pygame.display.flip()
 
 pygame.quit()
