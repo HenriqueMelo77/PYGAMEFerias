@@ -23,12 +23,12 @@ CARRO_ALTURA = TAM_JOGADOR
 CARRO_COR = (220, 50, 50)
 
 ESPACAMENTO_GRUPO = 6
-ESPACAMENTO_CARRO = 30
 
 BRANCO = (255,255,255)
 PRETO = (0,0,0)
 CINZA = (120,120,120)
 AZUL_ESCURO = (10,10,50)
+FUNDO = (30,160,200)
 
 tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption("Jogo")
@@ -54,7 +54,7 @@ class Jogador(pygame.sprite.Sprite):
         self.rect.midbottom = (LARGURA // 2, ALTURA - 30)
 
 class Carro(pygame.sprite.Sprite):
-    def __init__(self, centro_y, direcao, vel, espaco_spawn=0):
+    def __init__(self, centro_y, direcao, vel):
         super().__init__()
         self.surf = pygame.Surface((CARRO_LARGURA, CARRO_ALTURA))
         self.surf.fill(CARRO_COR)
@@ -62,11 +62,10 @@ class Carro(pygame.sprite.Sprite):
         self.rect.centery = centro_y
         self.direcao = direcao
         self.vel = vel
-
         if direcao == 1:
-            self.rect.left = -CARRO_LARGURA - 10 + espaco_spawn
+            self.rect.left = -CARRO_LARGURA - 10
         else:
-            self.rect.right = LARGURA + 10 - espaco_spawn
+            self.rect.right = LARGURA + 10
 
     def update(self, dt):
         self.rect.x += int(self.vel * self.direcao * dt)
@@ -85,18 +84,19 @@ class FaixaController:
         self.formato_idx = 0
         self.estado = "waiting"
         self.prox_acao = pygame.time.get_ticks()
-        self.spawna_mesmo_grupo = 0
 
     def update(self, agora_ms, grupo_carros):
         if self.estado == "waiting":
             if agora_ms >= self.prox_acao:
                 self.estado = "spawning_group"
-                self.spawna_mesmo_grupo = 0
         elif self.estado == "spawning_group":
             conta, espera = self.formato[self.formato_idx]
             for i in range(conta):
-                espaco_spawn = i * (CARRO_LARGURA + ESPACAMENTO_GRUPO)
-                novo_carro = Carro(self.centro_y, self.direcao, self.vel, espaco_spawn=espaco_spawn)
+                novo_carro = Carro(self.centro_y, self.direcao, self.vel)
+                if self.direcao == 1:
+                    novo_carro.rect.left = -CARRO_LARGURA - 10 - i * (CARRO_LARGURA + ESPACAMENTO_GRUPO)
+                else:
+                    novo_carro.rect.right = LARGURA + 10 + i * (CARRO_LARGURA + ESPACAMENTO_GRUPO)
                 grupo_carros.add(novo_carro)
             self.prox_acao = agora_ms + espera
             self.formato_idx = (self.formato_idx + 1) % len(self.formato)
@@ -131,24 +131,34 @@ def controle_criacao_faixa():
 def criacao_inicial_grupos(grupo_carros, controladores):
     for ctrl in controladores:
         conta, espera = ctrl.formato[ctrl.formato_idx]
+        if conta <= 0:
+            ctrl.prox_acao = pygame.time.get_ticks() + espera
+            continue
         total_group_largura = conta * CARRO_LARGURA + max(0, (conta - 1)) * ESPACAMENTO_GRUPO
         min_cx = int(LARGURA * 0.2)
         max_cx = int(LARGURA * 0.8)
         alvo_cx = random.randint(min_cx, max_cx)
         primeira_esquerda = alvo_cx - total_group_largura // 2
-
-        if ctrl.direcao == 1:
-            base_espaco_spawn = primeira_esquerda + CARRO_LARGURA + 10
-        else:
-            direita_desejada = primeira_esquerda + total_group_largura
-            base_espaco_spawn = LARGURA + 10 - direita_desejada
-
         for i in range(conta):
-            espaco_spawn = int(base_espaco_spawn + i * (CARRO_LARGURA + ESPACAMENTO_GRUPO))
-            novo_carro = Carro(ctrl.centro_y, ctrl.direcao, ctrl.vel, espaco_spawn=espaco_spawn)
+            novo_carro = Carro(ctrl.centro_y, ctrl.direcao, ctrl.vel)
+            if ctrl.direcao == 1:
+                novo_carro.rect.left = int(primeira_esquerda + i * (CARRO_LARGURA + ESPACAMENTO_GRUPO))
+            else:
+                direita_desejada = primeira_esquerda + total_group_largura
+                novo_carro.rect.right = int(direita_desejada - i * (CARRO_LARGURA + ESPACAMENTO_GRUPO))
             grupo_carros.add(novo_carro)
-
         ctrl.prox_acao = pygame.time.get_ticks() + espera
+
+def verificar_colisoes_e_reset(jogador, carros, controladores):
+    colisao = pygame.sprite.spritecollideany(jogador, carros)
+    if colisao:
+        jogador.reseta_comeco()
+        carros.empty()
+        novas_controladores = controle_criacao_faixa()
+        criacao_inicial_grupos(carros, novas_controladores)
+        controladores[:] = novas_controladores
+        return True
+    return False
 
 jog = Jogador(JOGADOR_POS_INICIAL)
 jog.reseta_comeco()
@@ -166,7 +176,6 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
-
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 running = False
@@ -185,7 +194,9 @@ while running:
     for c in list(carros):
         c.update(dt)
 
-    tela.fill((30,160,200))
+    verificar_colisoes_e_reset(jog, carros, faixa_controladores)
+
+    tela.fill(FUNDO)
 
     for c in carros:
         tela.blit(c.surf, c.rect)
