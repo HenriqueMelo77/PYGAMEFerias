@@ -30,10 +30,40 @@ CINZA = (120,120,120)
 AZUL_ESCURO = (10,10,50)
 FUNDO = (30,160,200)
 
+ESTADO_MENU = "menu"
+ESTADO_JOGANDO = "jogando"
+ESTADO_INFO = "info"
+
+estado = ESTADO_MENU
+
 tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption("Jogo")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
+big_font = pygame.font.SysFont(None, 56)
+
+FORMATO_FASE_POR_FAIXA = [
+    [(4, 1500), (2, 1200)],     # Faixa 0
+    [(3, 1600), (3, 1600)],     # Faixa 1
+    [(0, 0)],                   # Faixa 2
+    [(3, 1300)],                # Faixa 3
+    [(0, 0)],                   # Faixa 4
+    [(4, 1400)],                # Faixa 5
+    [(3, 1800)],                # Faixa 6
+]
+
+VELOCIDADE_FASE_POR_FAIXA = [200, 180, 160, 140, 120, 100, 80]
+
+class Botao:
+    def __init__(self, rect, texto):
+        self.rect = pygame.Rect(rect)
+        self.texto = texto
+    def desenhar(self, surf):
+        pygame.draw.rect(surf, CINZA, self.rect)
+        txt = font.render(self.texto, True, PRETO)
+        surf.blit(txt, (self.rect.centerx - txt.get_width() // 2, self.rect.centery - txt.get_height() // 2))
+    def clicado(self, mx, my):
+        return self.rect.collidepoint(mx,my)
 
 class Jogador(pygame.sprite.Sprite):
     def __init__(self, start_pos):
@@ -102,17 +132,6 @@ class FaixaController:
             self.formato_idx = (self.formato_idx + 1) % len(self.formato)
             self.estado = "waiting"
 
-FORMATO_FASE_POR_FAIXA = [
-    [(4, 1500), (2, 1200)],
-    [(3, 1600), (3, 1600)],
-    [(0, 0)],
-    [(3, 1300)],
-    [(0, 0)],
-    [(4, 1400)],
-    [(3, 1800)],
-]
-
-VELOCIDADE_FASE_POR_FAIXA = [200, 180, 160, 140, 120, 100, 80]
 
 def controle_criacao_faixa():
     controladores = []
@@ -167,6 +186,14 @@ carros = pygame.sprite.Group()
 faixa_controladores = controle_criacao_faixa()
 criacao_inicial_grupos(carros, faixa_controladores)
 
+BTN_W, BTN_H = 220, 56
+BTN_SPACING = 24
+center_x = LARGURA // 2
+
+btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jogar")
+btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
+btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sair")
+
 running = True
 while running:
     dt_ms = clock.tick(FPS)
@@ -176,31 +203,78 @@ while running:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             running = False
+
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_ESCAPE:
-                running = False
-            if event.key in (pygame.K_LEFT, pygame.K_a):
-                jog.movimentacao(-PASSO_X, 0)
-            elif event.key in (pygame.K_RIGHT, pygame.K_d):
-                jog.movimentacao(PASSO_X, 0)
-            elif event.key in (pygame.K_UP, pygame.K_w):
-                jog.movimentacao(0, -PASSO_Y)
-            elif event.key in (pygame.K_DOWN, pygame.K_s):
-                jog.movimentacao(0, PASSO_Y)
+            if estado == ESTADO_JOGANDO:
+                if event.key == pygame.K_ESCAPE:
+                    estado = ESTADO_MENU
+                if event.key in (pygame.K_LEFT, pygame.K_a):
+                    jog.movimentacao(-PASSO_X, 0)
+                elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                    jog.movimentacao(PASSO_X, 0)
+                elif event.key in (pygame.K_UP, pygame.K_w):
+                    jog.movimentacao(0, -PASSO_Y)
+                elif event.key in (pygame.K_DOWN, pygame.K_s):
+                    jog.movimentacao(0, PASSO_Y)
+            elif estado == ESTADO_MENU:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+            elif estado == ESTADO_INFO:
+                if event.key == pygame.K_ESCAPE:
+                    estado = ESTADO_MENU
 
-    for ctrl in faixa_controladores:
-        ctrl.update(agora_ms, carros)
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            mx,my = event.pos
+            if estado == ESTADO_MENU:
+                if btn_jogar.clicado(mx,my):
+                    carros.empty()
+                    faixa_controladores = controle_criacao_faixa()
+                    criacao_inicial_grupos(carros, faixa_controladores)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                elif btn_info.clicado(mx,my):
+                    estado = ESTADO_INFO
+                elif btn_sair.clicado(mx,my):
+                    running = False
+            elif estado == ESTADO_INFO:
+                estado = ESTADO_MENU
 
-    for c in list(carros):
-        c.update(dt)
-
-    verificar_colisoes_e_reset(jog, carros, faixa_controladores)
+    if estado == ESTADO_JOGANDO:
+        for ctrl in faixa_controladores:
+            ctrl.update(agora_ms, carros)
+        for c in list(carros):
+            c.update(dt)
+        verificar_colisoes_e_reset(jog, carros, faixa_controladores)
 
     tela.fill(FUNDO)
 
-    for c in carros:
-        tela.blit(c.surf, c.rect)
-    tela.blit(jog.surf, jog.rect)
+    if estado == ESTADO_MENU:
+        titulo = big_font.render("CROSSY CLONE", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+        btn_jogar.desenhar(tela)
+        btn_info.desenhar(tela)
+        btn_sair.desenhar(tela)
+
+    elif estado == ESTADO_INFO:
+        lines = [
+            "Como jogar:",
+            "- Use as setas ou WASD para mover por passos (um passo por tecla).",
+            "- Objetivo: evitar os carros e atravessar as faixas.",
+            "- Clique para voltar ao Menu."
+        ]
+        y = 120
+        for ln in lines:
+            txt = font.render(ln, True, BRANCO)
+            tela.blit(txt, (40,y))
+            y += 36
+
+    elif estado == ESTADO_JOGANDO:
+        top_zone = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+        
+
+        for c in carros:
+            tela.blit(c.surf, c.rect)
+        tela.blit(jog.surf, jog.rect)
 
     pygame.display.flip()
 
