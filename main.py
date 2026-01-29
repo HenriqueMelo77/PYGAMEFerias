@@ -1,7 +1,4 @@
-import pygame
-import sys
-import random
-
+import pygame, sys, random, json, os
 pygame.init()
 
 LARGURA, ALTURA = 640, 800
@@ -33,6 +30,7 @@ FUNDO = (30,160,200)
 ESTADO_MENU = "menu"
 ESTADO_JOGANDO = "jogando"
 ESTADO_INFO = "info"
+ESTADO_VITORIA = "vitoria"
 
 estado = ESTADO_MENU
 
@@ -47,6 +45,7 @@ BTN_W, BTN_H = 220, 56
 BTN_SPACING = 24
 center_x = LARGURA // 2
 
+PASTA_RANKING = "ranking.json"
 PADROES_FAIXA_POR_FASE = {
     1: [  # fase 1 (7 faixas)
         [(4, 1000), (2, 1000), (2, 1000)],
@@ -225,6 +224,25 @@ def verificar_colisoes_e_reset(jogador, carros, controladores):
         return True
     return False
 
+def carregar_ranking():
+    if not os.path.exists(PASTA_RANKING):
+        return []
+    try:
+        with open(PASTA_RANKING, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
+    return []
+
+def salvar_ranking(entries):
+    try:
+        with open(PASTA_RANKING, "w", encoding="utf-8") as f:
+            json.dump(entries, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("Erro salvando ranking:", e)
+
 jog = Jogador(JOGADOR_POS_INICIAL)
 jog.reseta_comeco()
 
@@ -237,6 +255,9 @@ btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jo
 btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
 btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sair")
 
+tempo_vitoria_secs = 0.0
+nome_input = ""
+
 running = True
 while running:
     dt_ms = clock.tick(FPS)
@@ -248,6 +269,23 @@ while running:
             running = False
 
         if event.type == pygame.KEYDOWN:
+            if estado == ESTADO_VITORIA:
+                if event.key == pygame.K_BACKSPACE:
+                    nome_input = nome_input[:-1]
+                elif event.key == pygame.K_RETURN:
+                    entries = carregar_ranking()
+                    entries.append({"name": nome_input if nome_input.strip() != "" else "Anon", "time": round(tempo_vitoria_secs, 3)})
+                    entries = sorted(entries, key=lambda x: x["time"])[:10]
+                    salvar_ranking(entries)
+                    nome_input = ""
+                    estado = ESTADO_MENU
+                else:
+                    if len(nome_input) < 16:
+                        ch = event.unicode
+                        if ch.isprintable():
+                            nome_input += ch
+                continue
+
             if estado == ESTADO_JOGANDO:
                 if event.key == pygame.K_ESCAPE:
                     estado = ESTADO_MENU
@@ -274,7 +312,7 @@ while running:
                     fase = 1
                     resetar_estado_fase(fase)
                     jog.reseta_comeco()
-                    jog.vidas = 3  # <-- garantir que vidas resetem ao iniciar um novo jogo
+                    jog.vidas = 3
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
                 elif btn_info.clicado(mx,my):
@@ -301,7 +339,12 @@ while running:
                 fase = 2
                 resetar_estado_fase(fase)
             else:
-                estado = ESTADO_MENU
+                if inicio_tempo_ms is None:
+                    tempo_vitoria_secs = 0.0
+                else:
+                    tempo_vitoria_secs = (pygame.time.get_ticks() - inicio_tempo_ms) / 1000.0
+                nome_input = ""
+                estado = ESTADO_VITORIA
                 inicio_tempo_ms = None
 
     tela.fill(FUNDO)
@@ -327,7 +370,6 @@ while running:
             y += 36
 
     elif estado == ESTADO_JOGANDO:
-
         for c in carros:
             tela.blit(c.surf, c.rect)
         tela.blit(jog.surf, jog.rect)
@@ -343,7 +385,23 @@ while running:
         texto_tempo = font.render(f"Tempo: {tempo_decorrido:.2f}s", True, BRANCO)
         x_tempo = LARGURA - texto_tempo.get_width() - 10
         tela.blit(texto_tempo, (x_tempo, 10))
-        
+
+    elif estado == ESTADO_VITORIA:
+        titulo = big_font.render("VOCÊ VENCEU!", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+
+        t = font.render(f"Seu tempo: {tempo_vitoria_secs:.3f}s", True, BRANCO)
+        tela.blit(t, ((LARGURA - t.get_width()) // 2, 200))
+
+        prompt = font.render("Digite seu nome e pressione Enter:", True, BRANCO)
+        tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 260))
+
+        box = pygame.Rect((LARGURA//2 - 200, 320, 400, 40))
+        pygame.draw.rect(tela, (240,240,240), box)
+        pygame.draw.rect(tela, PRETO, box, 2)
+        name_surf = font.render(nome_input, True, PRETO)
+        tela.blit(name_surf, (box.x + 8, box.y + 8))
+
     pygame.display.flip()
 
 pygame.quit()
