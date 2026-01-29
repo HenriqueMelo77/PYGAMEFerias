@@ -32,6 +32,7 @@ ESTADO_JOGANDO = "jogando"
 ESTADO_INFO = "info"
 ESTADO_VITORIA = "vitoria"
 ESTADO_RANKING = "ranking"
+ESTADO_GAMEOVER = "gameover"
 
 estado = ESTADO_MENU
 
@@ -261,6 +262,9 @@ btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sai
 btn_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
 btn_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
 
+btn_reiniciar_gameover = Botao((center_x - 240, 360, 200, 56), "Reinício rápido (R)")
+btn_voltar_menu_gameover = Botao((center_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
+
 tempo_vitoria_secs = 0.0
 nome_input = ""
 
@@ -276,6 +280,19 @@ while running:
 
         if event.type == pygame.KEYDOWN:
             if estado == ESTADO_RANKING:
+                if event.key == pygame.K_ESCAPE:
+                    estado = ESTADO_MENU
+                    continue
+                if event.key == pygame.K_r:
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                    continue
+
+            if estado == ESTADO_GAMEOVER:
                 if event.key == pygame.K_ESCAPE:
                     estado = ESTADO_MENU
                     continue
@@ -349,6 +366,16 @@ while running:
                     inicio_tempo_ms = pygame.time.get_ticks()
                 if btn_voltar_menu_ranking.clicado(mx, my):
                     estado = ESTADO_MENU
+            elif estado == ESTADO_GAMEOVER:
+                if btn_reiniciar_gameover.clicado(mx, my):
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                if btn_voltar_menu_gameover.clicado(mx, my):
+                    estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
         for ctrl in faixa_controladores:
@@ -359,8 +386,8 @@ while running:
         if houve_colisao:
             jog.vidas -= 1
             if jog.vidas <= 0:
-                pygame.quit()
-                sys.exit()
+                estado = ESTADO_GAMEOVER
+                inicio_tempo_ms = None
 
         if jog.rect.top <= TOPO_FAIXA:
             if fase == 1:
@@ -398,6 +425,14 @@ while running:
             y += 36
 
     elif estado == ESTADO_JOGANDO:
+        topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+        pygame.draw.rect(tela, AZUL_ESCURO, topo)
+
+        for i in range(QTD_FAIXAS):
+            r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
+            pygame.draw.rect(tela, CINZA, r)
+            pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+
         for c in carros:
             tela.blit(c.surf, c.rect)
         tela.blit(jog.surf, jog.rect)
@@ -446,6 +481,16 @@ while running:
 
         btn_reiniciar_ranking.desenhar(tela)
         btn_voltar_menu_ranking.desenhar(tela)
+
+    elif estado == ESTADO_GAMEOVER:
+        titulo = big_font.render("GAME OVER", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+
+        mensagem = font.render("Você perdeu todas as vidas.", True, BRANCO)
+        tela.blit(mensagem, ((LARGURA - mensagem.get_width()) // 2, 200))
+
+        btn_reiniciar_gameover.desenhar(tela)
+        btn_voltar_menu_gameover.desenhar(tela)
 
     pygame.display.flip()
 
