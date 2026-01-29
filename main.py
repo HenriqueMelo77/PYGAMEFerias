@@ -54,6 +54,34 @@ FORMATO_FASE_POR_FAIXA = [
 
 VELOCIDADE_FASE_POR_FAIXA = [200, 180, 160, 140, 120, 100, 80]
 
+PADROES_FAIXA_POR_FASE = {
+    1: [  # fase 1 (7 faixas)
+        [(4, 1000), (2, 1000), (2, 1000)],
+        [(3, 2000), (4, 2200), (3,2400)],
+        [(0,0)],
+        [(3,1300), (2,1300)],
+        [(0,0)],
+        [(3,2000), (3,2000)],
+        [(4,1250), (2,2500)]
+    ],
+    2: [  # fase 2 (9 faixas)
+        [(2,1000), (4,1000), (2,1000)],
+        [(4,1000), (2,1500)],
+        [(0,0)],
+        [(3,1100), (4,2000)],
+        [(4,1200), (4,1200)],
+        [(0,0)],
+        [(4,1000), (2,1800)],
+        [(3,1500), (2,1500)],
+        [(2,1200), (2,1200), (2,1200), (2,1000)]
+    ]
+}
+
+VELOCIDADES_FAIXA_POR_FASE = {
+    1: [200, 180, 160, 140, 120, 100, 80],
+    2: [240, 240, 220, 200, 180, 160, 160, 140, 120]
+}
+
 class Botao:
     def __init__(self, rect, texto):
         self.rect = pygame.Rect(rect)
@@ -133,7 +161,6 @@ class FaixaController:
             self.formato_idx = (self.formato_idx + 1) % len(self.formato)
             self.estado = "waiting"
 
-
 def controle_criacao_faixa():
     controladores = []
     for i in range(QTD_FAIXAS):
@@ -169,6 +196,45 @@ def criacao_inicial_grupos(grupo_carros, controladores):
             grupo_carros.add(novo_carro)
         ctrl.prox_acao = pygame.time.get_ticks() + espera
 
+def construir_controladores_por_fase(fase):
+    controladores = []
+    if fase == 1:
+        qtd_faixas = 7
+        padroes = PADROES_FAIXA_POR_FASE.get(1, [])
+        velocidades = VELOCIDADES_FAIXA_POR_FASE.get(1, [])
+    else:
+        qtd_faixas = 9
+        padroes = PADROES_FAIXA_POR_FASE.get(2, [])
+        velocidades = VELOCIDADES_FAIXA_POR_FASE.get(2, [])
+
+    for i in range(qtd_faixas):
+        y_top = TOPO_FAIXA + i * (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
+        direcao = 1 if (i % 2 == 0) else -1
+        if random.random() < 0.5:
+            direcao *= -1
+
+        if i < len(velocidades):
+            base_vel = velocidades[i]
+        else:
+            base_vel = 120 + i * 25
+
+        if i < len(padroes):
+            formato = padroes[i]
+        else:
+            formato = [(3,1500)]
+
+        ctrl = FaixaController(i, y_top, direcao, base_vel, formato)
+        ctrl.prox_acao = pygame.time.get_ticks() + random.randint(0,1500)
+        controladores.append(ctrl)
+    return controladores
+
+def resetar_estado_fase(fase):
+    global carros, faixa_controladores
+    carros.empty()
+    faixa_controladores = construir_controladores_por_fase(fase)
+    criacao_inicial_grupos(carros, faixa_controladores)
+    jog.reseta_comeco()
+
 def verificar_colisoes_e_reset(jogador, carros, controladores):
     colisao = pygame.sprite.spritecollideany(jogador, carros)
     if colisao:
@@ -184,7 +250,8 @@ jog = Jogador(JOGADOR_POS_INICIAL)
 jog.reseta_comeco()
 
 carros = pygame.sprite.Group()
-faixa_controladores = controle_criacao_faixa()
+fase = 1
+faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
 
 BTN_W, BTN_H = 220, 56
@@ -228,9 +295,8 @@ while running:
             mx,my = event.pos
             if estado == ESTADO_MENU:
                 if btn_jogar.clicado(mx,my):
-                    carros.empty()
-                    faixa_controladores = controle_criacao_faixa()
-                    criacao_inicial_grupos(carros, faixa_controladores)
+                    fase = 1
+                    resetar_estado_fase(fase)
                     jog.reseta_comeco()
                     estado = ESTADO_JOGANDO
                 elif btn_info.clicado(mx,my):
@@ -252,6 +318,13 @@ while running:
                 pygame.quit()
                 sys.exit()
 
+        if jog.rect.top <= TOPO_FAIXA:
+            if fase == 1:
+                fase = 2
+                resetar_estado_fase(fase)
+            else:
+                estado = ESTADO_MENU
+
     tela.fill(FUNDO)
 
     if estado == ESTADO_MENU:
@@ -262,27 +335,27 @@ while running:
         btn_sair.desenhar(tela)
 
     elif estado == ESTADO_INFO:
-        lines = [
+        linhas = [
             "Como jogar:",
             "- Use as setas ou WASD para mover por passos (um passo por tecla).",
             "- Objetivo: evitar os carros e atravessar as faixas.",
             "- Clique para voltar ao Menu."
         ]
         y = 120
-        for ln in lines:
+        for ln in linhas:
             txt = font.render(ln, True, BRANCO)
             tela.blit(txt, (40,y))
             y += 36
 
     elif estado == ESTADO_JOGANDO:
-        zona_superior = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
-        
+
         for c in carros:
             tela.blit(c.surf, c.rect)
         tela.blit(jog.surf, jog.rect)
 
-        texto_vidas = font.render(f"Vidas: {jog.vidas}", True, BRANCO)
+        texto_vidas = font.render(f"Vidas: {jog.vidas}  Fase: {fase}", True, BRANCO)
         tela.blit(texto_vidas, (10, 10))
+        
     pygame.display.flip()
 
 pygame.quit()
