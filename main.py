@@ -33,6 +33,7 @@ ESTADO_INFO = "info"
 ESTADO_VITORIA = "vitoria"
 ESTADO_RANKING = "ranking"
 ESTADO_GAMEOVER = "gameover"
+ESTADO_PAUSADO = "pausado"
 
 estado = ESTADO_MENU
 
@@ -43,6 +44,8 @@ font = pygame.font.SysFont(None, 24)
 big_font = pygame.font.SysFont(None, 56)
 
 inicio_tempo_ms = None
+pausa_inicio_ms = None
+
 BTN_W, BTN_H = 220, 56
 BTN_SPACING = 24
 center_x = LARGURA // 2
@@ -265,6 +268,9 @@ btn_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar 
 btn_reiniciar_gameover = Botao((center_x - 240, 360, 200, 56), "Reinício rápido (R)")
 btn_voltar_menu_gameover = Botao((center_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
 
+btn_continuar = Botao((center_x - BTN_W//2, 300, BTN_W, BTN_H), "Continuar (ESC)")
+btn_voltar_menu_pausa = Botao((center_x - BTN_W//2, 300 + BTN_H + 20, BTN_W, BTN_H), "Voltar ao Menu")
+
 tempo_vitoria_secs = 0.0
 nome_input = ""
 
@@ -321,10 +327,34 @@ while running:
                             nome_input += ch
                 continue
 
+            if estado == ESTADO_PAUSADO:
+                if event.key == pygame.K_ESCAPE:
+                    if pausa_inicio_ms is not None and inicio_tempo_ms is not None:
+                        delta = agora_ms - pausa_inicio_ms
+                        inicio_tempo_ms += delta
+                    pausa_inicio_ms = None
+                    estado = ESTADO_JOGANDO
+                    continue
+                if event.key == pygame.K_r:
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                    pausa_inicio_ms = None
+                    estado = ESTADO_JOGANDO
+                    continue
+                if event.key == pygame.K_m:
+                    pausa_inicio_ms = None
+                    inicio_tempo_ms = None
+                    estado = ESTADO_MENU
+                    continue
+
             if estado == ESTADO_JOGANDO:
                 if event.key == pygame.K_ESCAPE:
-                    estado = ESTADO_MENU
-                    inicio_tempo_ms = None
+                    estado = ESTADO_PAUSADO
+                    pausa_inicio_ms = agora_ms
+                    continue
                 if event.key in (pygame.K_LEFT, pygame.K_a):
                     jog.movimentacao(-PASSO_X, 0)
                 elif event.key in (pygame.K_RIGHT, pygame.K_d):
@@ -376,6 +406,17 @@ while running:
                     inicio_tempo_ms = pygame.time.get_ticks()
                 if btn_voltar_menu_gameover.clicado(mx, my):
                     estado = ESTADO_MENU
+            elif estado == ESTADO_PAUSADO:
+                if btn_continuar.clicado(mx, my):
+                    if pausa_inicio_ms is not None and inicio_tempo_ms is not None:
+                        delta = pygame.time.get_ticks() - pausa_inicio_ms
+                        inicio_tempo_ms += delta
+                    pausa_inicio_ms = None
+                    estado = ESTADO_JOGANDO
+                if btn_voltar_menu_pausa.clicado(mx, my):
+                    pausa_inicio_ms = None
+                    inicio_tempo_ms = None
+                    estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
         for ctrl in faixa_controladores:
@@ -415,6 +456,7 @@ while running:
         linhas = [
             "Como jogar:",
             "- Use as setas ou WASD para mover por passos (um passo por tecla).",
+            "- Pressione ESC durante o jogo para pausar.",
             "- Objetivo: evitar os carros e atravessar as faixas.",
             "- Clique para voltar ao Menu."
         ]
@@ -450,6 +492,31 @@ while running:
         texto_tempo = font.render(f"Tempo: {tempo_decorrido:.2f}s", True, BRANCO)
         x_tempo = LARGURA - texto_tempo.get_width() - 10
         tela.blit(texto_tempo, (x_tempo, 10))
+
+    elif estado == ESTADO_PAUSADO:
+        topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+        pygame.draw.rect(tela, AZUL_ESCURO, topo)
+        num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
+        for i in range(num_faixas_para_desenhar):
+            r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
+            pygame.draw.rect(tela, CINZA, r)
+            pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+        for c in carros:
+            tela.blit(c.surf, c.rect)
+        tela.blit(jog.surf, jog.rect)
+
+        s = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
+        s.fill((0,0,0,140))
+        tela.blit(s, (0,0))
+
+        titulo = big_font.render("PAUSADO", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+
+        btn_continuar.desenhar(tela)
+        btn_voltar_menu_pausa.desenhar(tela)
+
+        instr = font.render("Pressione ESC para continuar, R para reiniciar, ou clique nos botões.", True, BRANCO)
+        tela.blit(instr, ((LARGURA - instr.get_width()) // 2, 480))
 
     elif estado == ESTADO_VITORIA:
         titulo = big_font.render("VOCÊ VENCEU!", True, BRANCO)
