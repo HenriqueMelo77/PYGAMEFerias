@@ -88,7 +88,7 @@ VELOCIDADES_FAIXA_POR_FASE = {
 }
 
 class Botao:
-    def __init__(self, rect, texto):
+    def _init_(self, rect, texto):
         self.rect = pygame.Rect(rect)
         self.texto = texto
     def desenhar(self, surf):
@@ -99,8 +99,8 @@ class Botao:
         return self.rect.collidepoint(mx,my)
 
 class Jogador(pygame.sprite.Sprite):
-    def __init__(self, start_pos):
-        super().__init__()
+    def _init_(self, start_pos):
+        super()._init_()
         self.surf = pygame.Surface((TAM_JOGADOR, TAM_JOGADOR))
         self.surf.fill(COR_JOGADOR)
         self.rect = self.surf.get_rect(center=start_pos)
@@ -118,8 +118,8 @@ class Jogador(pygame.sprite.Sprite):
         self.rect.midbottom = (LARGURA // 2, ALTURA - 30)
 
 class Carro(pygame.sprite.Sprite):
-    def __init__(self, centro_y, direcao, vel):
-        super().__init__()
+    def _init_(self, centro_y, direcao, vel):
+        super()._init_()
         self.surf = pygame.Surface((CARRO_LARGURA, CARRO_ALTURA))
         self.surf.fill(CARRO_COR)
         self.rect = self.surf.get_rect()
@@ -139,7 +139,7 @@ class Carro(pygame.sprite.Sprite):
             self.kill()
 
 class FaixaController:
-    def __init__(self, faixa_index, topo_y, direcao, vel, formato_grupo):
+    def _init_(self, faixa_index, topo_y, direcao, vel, formato_grupo):
         self.faixa_index = faixa_index
         self.centro_y = topo_y + FAIXA_ALTURA // 2
         self.direcao = direcao
