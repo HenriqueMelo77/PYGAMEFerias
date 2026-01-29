@@ -49,7 +49,7 @@ center_x = LARGURA // 2
 
 PASTA_RANKING = "ranking.json"
 PADROES_FAIXA_POR_FASE = {
-    1: [  # fase 1 (7 faixas)
+    1: [
         [(4, 1000), (2, 1000), (2, 1000)],
         [(3, 2000), (4, 2200), (3,2400)],
         [(0,0)],
@@ -58,12 +58,12 @@ PADROES_FAIXA_POR_FASE = {
         [(3,2000), (3,2000)],
         [(4,1250), (2,2500)]
     ],
-    2: [  # fase 2 (9 faixas)
+    2: [
         [(2,1000), (4,1000), (2,1000)],
         [(4,1000), (2,1500)],
         [(0,0)],
         [(3,1100), (4,2000)],
-        [(4,1200), (4,1200)],
+        [(4,1200), (3,1200)],
         [(0,0)],
         [(4,1000), (2,1800)],
         [(3,1500), (2,1500)],
@@ -425,10 +425,12 @@ while running:
             y += 36
 
     elif estado == ESTADO_JOGANDO:
+        num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
+
         topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
         pygame.draw.rect(tela, AZUL_ESCURO, topo)
 
-        for i in range(QTD_FAIXAS):
+        for i in range(num_faixas_para_desenhar):
             r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
             pygame.draw.rect(tela, CINZA, r)
             pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
