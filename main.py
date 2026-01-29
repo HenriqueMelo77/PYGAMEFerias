@@ -274,6 +274,7 @@ while running:
                     fase = 1
                     resetar_estado_fase(fase)
                     jog.reseta_comeco()
+                    jog.vidas = 3  # <-- garantir que vidas resetem ao iniciar um novo jogo
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
                 elif btn_info.clicado(mx,my):
