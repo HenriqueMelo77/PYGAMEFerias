@@ -42,6 +42,11 @@ clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
 big_font = pygame.font.SysFont(None, 56)
 
+inicio_tempo_ms = None
+BTN_W, BTN_H = 220, 56
+BTN_SPACING = 24
+center_x = LARGURA // 2
+
 FORMATO_FASE_POR_FAIXA = [
     [(4, 1500), (2, 1200)],     # Faixa 0
     [(3, 1600), (3, 1600)],     # Faixa 1
@@ -254,9 +259,7 @@ fase = 1
 faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
 
-BTN_W, BTN_H = 220, 56
-BTN_SPACING = 24
-center_x = LARGURA // 2
+
 
 btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jogar")
 btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
@@ -276,6 +279,7 @@ while running:
             if estado == ESTADO_JOGANDO:
                 if event.key == pygame.K_ESCAPE:
                     estado = ESTADO_MENU
+                    inicio_tempo_ms = None
                 if event.key in (pygame.K_LEFT, pygame.K_a):
                     jog.movimentacao(-PASSO_X, 0)
                 elif event.key in (pygame.K_RIGHT, pygame.K_d):
@@ -299,6 +303,7 @@ while running:
                     resetar_estado_fase(fase)
                     jog.reseta_comeco()
                     estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
                 elif btn_info.clicado(mx,my):
                     estado = ESTADO_INFO
                 elif btn_sair.clicado(mx,my):
@@ -324,6 +329,7 @@ while running:
                 resetar_estado_fase(fase)
             else:
                 estado = ESTADO_MENU
+                inicio_tempo_ms = None
 
     tela.fill(FUNDO)
 
@@ -355,6 +361,15 @@ while running:
 
         texto_vidas = font.render(f"Vidas: {jog.vidas}  Fase: {fase}", True, BRANCO)
         tela.blit(texto_vidas, (10, 10))
+
+        if inicio_tempo_ms is None:
+            tempo_decorrido = 0.0
+        else:
+            tempo_decorrido = (pygame.time.get_ticks() - inicio_tempo_ms) / 1000.0
+
+        texto_tempo = font.render(f"Tempo: {tempo_decorrido:.2f}s", True, BRANCO)
+        x_tempo = LARGURA - texto_tempo.get_width() - 10
+        tela.blit(texto_tempo, (x_tempo, 10))
         
     pygame.display.flip()
 
