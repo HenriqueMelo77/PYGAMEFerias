@@ -31,6 +31,7 @@ ESTADO_MENU = "menu"
 ESTADO_JOGANDO = "jogando"
 ESTADO_INFO = "info"
 ESTADO_VITORIA = "vitoria"
+ESTADO_RANKING = "ranking"
 
 estado = ESTADO_MENU
 
@@ -231,15 +232,17 @@ def carregar_ranking():
         with open(PASTA_RANKING, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                return data
+                data_sorted = sorted(data, key=lambda x: x.get("time", float("inf")))
+                return data_sorted[:10]
     except Exception:
         pass
     return []
 
 def salvar_ranking(entries):
     try:
+        entries_sorted = sorted(entries, key=lambda x: x.get("time", float("inf")))[:10]
         with open(PASTA_RANKING, "w", encoding="utf-8") as f:
-            json.dump(entries, f, ensure_ascii=False, indent=2)
+            json.dump(entries_sorted, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Erro salvando ranking:", e)
 
@@ -255,6 +258,9 @@ btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jo
 btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
 btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sair")
 
+btn_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
+btn_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
+
 tempo_vitoria_secs = 0.0
 nome_input = ""
 
@@ -269,16 +275,28 @@ while running:
             running = False
 
         if event.type == pygame.KEYDOWN:
+            if estado == ESTADO_RANKING:
+                if event.key == pygame.K_ESCAPE:
+                    estado = ESTADO_MENU
+                    continue
+                if event.key == pygame.K_r:
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                    continue
+
             if estado == ESTADO_VITORIA:
                 if event.key == pygame.K_BACKSPACE:
                     nome_input = nome_input[:-1]
                 elif event.key == pygame.K_RETURN:
                     entries = carregar_ranking()
                     entries.append({"name": nome_input if nome_input.strip() != "" else "Anon", "time": round(tempo_vitoria_secs, 3)})
-                    entries = sorted(entries, key=lambda x: x["time"])[:10]
                     salvar_ranking(entries)
                     nome_input = ""
-                    estado = ESTADO_MENU
+                    estado = ESTADO_RANKING
                 else:
                     if len(nome_input) < 16:
                         ch = event.unicode
@@ -321,6 +339,16 @@ while running:
                     running = False
             elif estado == ESTADO_INFO:
                 estado = ESTADO_MENU
+            elif estado == ESTADO_RANKING:
+                if btn_reiniciar_ranking.clicado(mx, my):
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                if btn_voltar_menu_ranking.clicado(mx, my):
+                    estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
         for ctrl in faixa_controladores:
@@ -401,6 +429,23 @@ while running:
         pygame.draw.rect(tela, PRETO, box, 2)
         name_surf = font.render(nome_input, True, PRETO)
         tela.blit(name_surf, (box.x + 8, box.y + 8))
+
+    elif estado == ESTADO_RANKING:
+        titulo = big_font.render("RANKING", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 20))
+
+        entries = carregar_ranking()
+        y = 100
+        rank = 1
+        for e in entries:
+            line = f"{rank}. {e['name']} - {e['time']:.3f}s"
+            t = font.render(line, True, BRANCO)
+            tela.blit(t, (60, y))
+            y += 28
+            rank += 1
+
+        btn_reiniciar_ranking.desenhar(tela)
+        btn_voltar_menu_ranking.desenhar(tela)
 
     pygame.display.flip()
 
