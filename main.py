@@ -47,18 +47,6 @@ BTN_W, BTN_H = 220, 56
 BTN_SPACING = 24
 center_x = LARGURA // 2
 
-FORMATO_FASE_POR_FAIXA = [
-    [(4, 1500), (2, 1200)],     # Faixa 0
-    [(3, 1600), (3, 1600)],     # Faixa 1
-    [(0, 0)],                   # Faixa 2
-    [(3, 1300)],                # Faixa 3
-    [(0, 0)],                   # Faixa 4
-    [(4, 1400)],                # Faixa 5
-    [(3, 1800)],                # Faixa 6
-]
-
-VELOCIDADE_FASE_POR_FAIXA = [200, 180, 160, 140, 120, 100, 80]
-
 PADROES_FAIXA_POR_FASE = {
     1: [  # fase 1 (7 faixas)
         [(4, 1000), (2, 1000), (2, 1000)],
@@ -88,7 +76,7 @@ VELOCIDADES_FAIXA_POR_FASE = {
 }
 
 class Botao:
-    def _init_(self, rect, texto):
+    def __init__(self, rect, texto):
         self.rect = pygame.Rect(rect)
         self.texto = texto
     def desenhar(self, surf):
@@ -99,8 +87,8 @@ class Botao:
         return self.rect.collidepoint(mx,my)
 
 class Jogador(pygame.sprite.Sprite):
-    def _init_(self, start_pos):
-        super()._init_()
+    def __init__(self, start_pos):
+        super().__init__()
         self.surf = pygame.Surface((TAM_JOGADOR, TAM_JOGADOR))
         self.surf.fill(COR_JOGADOR)
         self.rect = self.surf.get_rect(center=start_pos)
@@ -118,8 +106,8 @@ class Jogador(pygame.sprite.Sprite):
         self.rect.midbottom = (LARGURA // 2, ALTURA - 30)
 
 class Carro(pygame.sprite.Sprite):
-    def _init_(self, centro_y, direcao, vel):
-        super()._init_()
+    def __init__(self, centro_y, direcao, vel):
+        super().__init__()
         self.surf = pygame.Surface((CARRO_LARGURA, CARRO_ALTURA))
         self.surf.fill(CARRO_COR)
         self.rect = self.surf.get_rect()
@@ -139,7 +127,7 @@ class Carro(pygame.sprite.Sprite):
             self.kill()
 
 class FaixaController:
-    def _init_(self, faixa_index, topo_y, direcao, vel, formato_grupo):
+    def __init__(self, faixa_index, topo_y, direcao, vel, formato_grupo):
         self.faixa_index = faixa_index
         self.centro_y = topo_y + FAIXA_ALTURA // 2
         self.direcao = direcao
@@ -165,20 +153,6 @@ class FaixaController:
             self.prox_acao = agora_ms + espera
             self.formato_idx = (self.formato_idx + 1) % len(self.formato)
             self.estado = "waiting"
-
-def controle_criacao_faixa():
-    controladores = []
-    for i in range(QTD_FAIXAS):
-        topo_y = TOPO_FAIXA + i * (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
-        direcao = 1 if (i % 2 == 0) else -1
-        if random.random() < 0.5:
-            direcao *= -1
-        base_vel = VELOCIDADE_FASE_POR_FAIXA[i] if i < len(VELOCIDADE_FASE_POR_FAIXA) else 120 + i * 20
-        formato = FORMATO_FASE_POR_FAIXA[i] if i < len(FORMATO_FASE_POR_FAIXA) else [(3, 1500)]
-        ctrl = FaixaController(i, topo_y, direcao, base_vel, formato)
-        ctrl.prox_acao = pygame.time.get_ticks() + random.randint(0, 1500)
-        controladores.append(ctrl)
-    return controladores
 
 def criacao_inicial_grupos(grupo_carros, controladores):
     for ctrl in controladores:
@@ -245,7 +219,7 @@ def verificar_colisoes_e_reset(jogador, carros, controladores):
     if colisao:
         jogador.reseta_comeco()
         carros.empty()
-        novas_controladores = controle_criacao_faixa()
+        novas_controladores = construir_controladores_por_fase(fase)
         criacao_inicial_grupos(carros, novas_controladores)
         controladores[:] = novas_controladores
         return True
@@ -258,8 +232,6 @@ carros = pygame.sprite.Group()
 fase = 1
 faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
-
-
 
 btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jogar")
 btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
