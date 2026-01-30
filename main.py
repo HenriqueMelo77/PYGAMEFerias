@@ -54,7 +54,8 @@ tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption("Jogo")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
-big_font = pygame.font.SysFont(None, 56)
+big_font = pygame.font.SysFont(None, 64)
+rank_font = pygame.font.SysFont(None, 32)
 
 # Variáveis de tempo
 inicio_tempo_ms = None
@@ -103,11 +104,11 @@ VELOCIDADES_FAIXA_POR_FASE = {
     2: [240, 240, 220, 200, 180, 160, 160, 140, 120]
 }
 
-# --- Novas variáveis/constantes relacionadas à câmera e geração dinâmica ---
+# Grupos de sprites
 BUFFER_FAIXAS_VISIVEIS = 3
 MAX_FAIXAS_MANTER = 48
 
-# Mundo / câmera (valores serão inicializados abaixo)
+# Mundo / câmera variáveis
 camera_y = 0.0
 mundo_top = 0.0
 mundo_bottom = 0.0
@@ -237,6 +238,7 @@ class FaixaController:
                 self.prox_acao = agora_ms + max(50, espera, min_wait_ms)
                 self.indice_formato = (self.indice_formato + 1) % len(self.formato)
 
+# Funções auxiliares
 def criacao_inicial_grupos(grupo_carros, controladores):
     grupo_carros.empty()
     for ctrl in controladores:
@@ -556,11 +558,13 @@ def salvar_ranking_infinito(entries):
 # Inicialização do jogo
 jog = Jogador(JOGADOR_POS_INICIAL)
 
+# inicializa variáveis de mundo/câmera com controladores iniciais
 carros = pygame.sprite.Group()
 fase = 1
 faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
 
+# calcula limites iniciais e posições do jogador/câmera
 mundo_top, mundo_bottom = limites_fase(fase, faixa_controladores)
 comeco_centro_y = mundo_bottom + FAIXA_ALTURA
 jog.reseta_comeco()
@@ -568,6 +572,7 @@ camera_y = mundo_bottom - ALTURA
 garantir_topo_preenchido()
 contagem_faixas_geradas = len(faixa_controladores)
 
+# marca faixa inicial visitada para infinito
 visited_faixas = set()
 if faixa_controladores:
     inicial_abs_index = faixa_controladores[-1].faixa_index
@@ -1028,18 +1033,27 @@ while executando:
         tela.blit(name_surf, (box.x + 8, box.y + 8))
 
     elif estado == ESTADO_RANKING:
-        titulo = big_font.render("RANKING", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 20))
-
         entries = carregar_ranking()
-        y = 100
-        rank = 1
-        for e in entries:
-            line = f"{rank}. {e['name']} - {e['time']:.3f}s"
-            t = font.render(line, True, BRANCO)
-            tela.blit(t, (60, y))
-            y += 28
-            rank += 1
+        titulo = big_font.render("RANKING", True, BRANCO)
+
+        entry_surfs = []
+        for idx, e in enumerate(entries, start=1):
+            line = f"{idx}. {e['name']} - {e['time']:.3f}s"
+            entry_surfs.append(rank_font.render(line, True, BRANCO))
+
+        spacing = 28
+        title_spacing = 20
+        total_height = titulo.get_height() + (title_spacing if entry_surfs else 0) + len(entry_surfs) * spacing
+        desloc_y = 40
+        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y)
+
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, start_y))
+
+        y = start_y + titulo.get_height() + title_spacing
+        for surf in entry_surfs:
+            x = (LARGURA - surf.get_width()) // 2
+            tela.blit(surf, (x, y))
+            y += spacing
 
         botao_reiniciar_ranking.desenhar(tela)
         botao_voltar_menu_ranking.desenhar(tela)
@@ -1061,18 +1075,27 @@ while executando:
         tela.blit(name_surf, (box.x + 8, box.y + 8))
 
     elif estado == ESTADO_RANKING_INFINITO:
-        titulo = big_font.render("RANKING", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 20))
-
         entries = carregar_ranking_infinito()
-        y = 100
-        rank = 1
-        for e in entries:
-            line = f"{rank}. {e['name']} - {e['score']} pts"
-            t = font.render(line, True, BRANCO)
-            tela.blit(t, (60, y))
-            y += 28
-            rank += 1
+        titulo = big_font.render("RANKING", True, BRANCO)
+
+        entry_surfs = []
+        for idx, e in enumerate(entries, start=1):
+            line = f"{idx}. {e['name']} - {e['score']} pts"
+            entry_surfs.append(rank_font.render(line, True, BRANCO))
+
+        spacing = 28
+        title_spacing = 20
+        total_height = titulo.get_height() + (title_spacing if entry_surfs else 0) + len(entry_surfs) * spacing
+        desloc_y = 40
+        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y)
+
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, start_y))
+
+        y = start_y + titulo.get_height() + title_spacing
+        for surf in entry_surfs:
+            x = (LARGURA - surf.get_width()) // 2
+            tela.blit(surf, (x, y))
+            y += spacing
 
         botao_reiniciar_ranking_inf.desenhar(tela)
         botao_voltar_menu_ranking_inf.desenhar(tela)
