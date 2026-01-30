@@ -1,5 +1,6 @@
 import pygame, sys, random, json, os
 pygame.init()
+pygame.mixer.init()
 
 # Constantes e configurações
 LARGURA, ALTURA = 640, 800
@@ -129,6 +130,21 @@ imagem_info = pygame.transform.scale(pygame.image.load("telas/tela de fundo.png"
 imagem_vitoria = pygame.transform.scale(pygame.image.load("telas/tela_vitoria.png"), (LARGURA, ALTURA))
 imagem_ranking = pygame.transform.scale(pygame.image.load("telas/ranking.png"), (LARGURA, ALTURA))
 
+# Sons
+som_colisao = pygame.mixer.Sound("sons/carro batendo na raposa.wav")
+som_pulo = pygame.mixer.Sound("sons/pulo da raposa.wav")
+som_clique = pygame.mixer.Sound("sons/clique do botao.wav")
+som_gameover = pygame.mixer.Sound("sons/gameover.wav")
+som_vitoria = pygame.mixer.Sound("sons/vitoria.wav")
+som_click_tecla = pygame.mixer.Sound("sons/click.wav")
+musica_transito_path = "sons/transito durante o jogo.wav"
+musica_menu_path = "sons/musica de fundo da tela inicial.wav"
+musica_atual = None
+
+# Volume dos sons/músicas
+som_pulo.set_volume(0.3)
+som_gameover.set_volume(0.5)
+
 # Imagens do jogador (raposa)
 imagens_jogador = [
     pygame.transform.scale(pygame.image.load("raposa/fox01.png"), (TAM_JOGADOR, TAM_JOGADOR)),
@@ -167,6 +183,27 @@ class Botao:
         surf.blit(txt, (self.rect.centerx - txt.get_width() // 2, self.rect.centery - txt.get_height() // 2))
     def clicado(self, mouse_x, mouse_y):
         return self.rect.collidepoint(mouse_x,mouse_y)
+
+def atualizar_musica(estado_atual):
+    global musica_atual
+    if estado_atual == ESTADO_MENU:
+        if musica_atual != "menu":
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(musica_menu_path)
+            pygame.mixer.music.set_volume(0.5)
+            pygame.mixer.music.play(-1)
+            musica_atual = "menu"
+    elif estado_atual == ESTADO_JOGANDO:
+        if musica_atual != "jogo":
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(musica_transito_path)
+            pygame.mixer.music.set_volume(0.3)
+            pygame.mixer.music.play(-1)
+            musica_atual = "jogo"
+    else:
+        if musica_atual is not None:
+            pygame.mixer.music.stop()
+            musica_atual = None
 
 class Jogador(pygame.sprite.Sprite):
     def __init__(self, start_pos):
@@ -645,6 +682,7 @@ botao_voltar_menu_ranking_inf = Botao((LARGURA - 305, ALTURA - 225, 250, 85), "V
 # Loop principal
 executando = True
 while executando:
+    estado_anterior = estado
     tempo_ms = clock.tick(FPS)
     tempo_delta = tempo_ms / 1000.0
     agora_ms = pygame.time.get_ticks()
@@ -656,9 +694,11 @@ while executando:
         if event.type == pygame.KEYDOWN:
             if estado == ESTADO_RANKING:
                 if event.key == pygame.K_ESCAPE:
+                    som_clique.play()
                     estado = ESTADO_MENU
                     continue
                 if event.key == pygame.K_r:
+                    som_clique.play()
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -670,9 +710,11 @@ while executando:
 
             if estado == ESTADO_RANKING_INFINITO:
                 if event.key == pygame.K_ESCAPE:
+                    som_clique.play()
                     estado = ESTADO_MENU
                     continue
                 if event.key == pygame.K_r:
+                    som_clique.play()
                     modo_jogo = 'infinito'
                     pontuacao_infinito = 0
                     jog.vidas = 1
@@ -683,9 +725,11 @@ while executando:
 
             if estado == ESTADO_GAMEOVER:
                 if event.key == pygame.K_ESCAPE:
+                    som_clique.play()
                     estado = ESTADO_MENU
                     continue
                 if event.key == pygame.K_r:
+                    som_clique.play()
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -696,6 +740,7 @@ while executando:
                     continue
 
             if estado == ESTADO_INFINITO_NOME:
+                som_click_tecla.play()
                 if event.key == pygame.K_BACKSPACE:
                     nome_input = nome_input[:-1]
                 elif event.key == pygame.K_RETURN:
@@ -712,6 +757,7 @@ while executando:
                 continue
 
             if estado == ESTADO_VITORIA:
+                som_click_tecla.play()
                 if event.key == pygame.K_BACKSPACE:
                     nome_input = nome_input[:-1]
                 elif event.key == pygame.K_RETURN:
@@ -729,6 +775,7 @@ while executando:
 
             if estado == ESTADO_PAUSADO:
                 if event.key == pygame.K_ESCAPE:
+                    som_clique.play()
                     if pausa_inicio_ms is not None and inicio_tempo_ms is not None:
                         delta = agora_ms - pausa_inicio_ms
                         inicio_tempo_ms += delta
@@ -736,6 +783,7 @@ while executando:
                     estado = ESTADO_JOGANDO
                     continue
                 if event.key == pygame.K_r:
+                    som_clique.play()
                     if modo_jogo == 'campanha':
                         fase = 1
                         jog.vidas = 3
@@ -750,6 +798,7 @@ while executando:
                     estado = ESTADO_JOGANDO
                     continue
                 if event.key == pygame.K_m:
+                    som_clique.play()
                     pausa_inicio_ms = None
                     inicio_tempo_ms = None
                     estado = ESTADO_MENU
@@ -757,6 +806,7 @@ while executando:
 
             if estado == ESTADO_PREPARO:
                 if event.key == pygame.K_e:
+                    som_clique.play()
                     if modo_jogo == 'campanha':
                         fase = 1
                         jog.vidas = 3
@@ -771,6 +821,7 @@ while executando:
                     estado = ESTADO_JOGANDO
                     continue
                 if event.key == pygame.K_ESCAPE:
+                    som_clique.play()
                     estado = ESTADO_MENU
                     continue
 
@@ -781,18 +832,22 @@ while executando:
                     continue
                 if event.key in (pygame.K_LEFT, pygame.K_a):
                     jog.movimentacao(-PASSO_X, 0)
+                    som_pulo.play()
                 elif event.key in (pygame.K_RIGHT, pygame.K_d):
                     jog.movimentacao(PASSO_X, 0)
+                    som_pulo.play()
                 elif event.key in (pygame.K_UP, pygame.K_w):
                     if modo_jogo == 'campanha':
                         jog.movimentacao(0, -PASSO_Y)
                     else:
                         mover_jogador_vertical_passo(-1)
+                    som_pulo.play()
                 elif event.key in (pygame.K_DOWN, pygame.K_s):
                     if modo_jogo == 'campanha':
                         jog.movimentacao(0, PASSO_Y)
                     else:
                         mover_jogador_vertical_passo(+1)
+                    som_pulo.play()
             elif estado == ESTADO_MENU:
                 if event.key == pygame.K_ESCAPE:
                     executando = False
@@ -804,19 +859,25 @@ while executando:
             mouse_x,mouse_y = event.pos
             if estado == ESTADO_MENU:
                 if botao_campanha.clicado(mouse_x,mouse_y):
+                    som_clique.play()
                     modo_jogo = 'campanha'
                     estado = ESTADO_PREPARO
                 elif botao_infinito.clicado(mouse_x,mouse_y):
+                    som_clique.play()
                     modo_jogo = 'infinito'
                     estado = ESTADO_PREPARO
                 elif botao_info.clicado(mouse_x,mouse_y):
+                    som_clique.play()
                     estado = ESTADO_INFO
                 elif botao_sair.clicado(mouse_x,mouse_y):
+                    som_clique.play()
                     executando = False
             elif estado == ESTADO_INFO:
+                som_clique.play()
                 estado = ESTADO_MENU
             elif estado == ESTADO_RANKING:
                 if botao_reiniciar_ranking.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -825,9 +886,11 @@ while executando:
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
                 if botao_voltar_menu_ranking.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     estado = ESTADO_MENU
             elif estado == ESTADO_RANKING_INFINITO:
                 if botao_reiniciar_ranking_inf.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     modo_jogo = 'infinito'
                     pontuacao_infinito = 0
                     jog.vidas = 1
@@ -835,9 +898,11 @@ while executando:
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = None
                 if botao_voltar_menu_ranking_inf.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     estado = ESTADO_MENU
             elif estado == ESTADO_GAMEOVER:
                 if botao_reiniciar_gameover.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -846,20 +911,24 @@ while executando:
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
                 if botao_voltar_menu_gameover.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     estado = ESTADO_MENU
             elif estado == ESTADO_PAUSADO:
                 if botao_continuar.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     if pausa_inicio_ms is not None and inicio_tempo_ms is not None:
                         delta = pygame.time.get_ticks() - pausa_inicio_ms
                         inicio_tempo_ms += delta
                     pausa_inicio_ms = None
                     estado = ESTADO_JOGANDO
                 if botao_voltar_menu_pausa.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     pausa_inicio_ms = None
                     inicio_tempo_ms = None
                     estado = ESTADO_MENU
             elif estado == ESTADO_PREPARO:
                 if botao_iniciar_jogo.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     if modo_jogo == 'campanha':
                         fase = 1
                         jog.vidas = 3
@@ -873,6 +942,7 @@ while executando:
                         inicio_tempo_ms = None
                     estado = ESTADO_JOGANDO
                 if botao_voltar_menu_preparo.clicado(mouse_x, mouse_y):
+                    som_clique.play()
                     estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
@@ -886,12 +956,14 @@ while executando:
             if modo_jogo == 'campanha':
                 reset_colisao = verificar_colisoes_e_reset(jog, carros, faixa_controladores)
                 if reset_colisao:
+                    som_colisao.play()
                     jog.vidas -= 1
                     if jog.vidas <= 0:
                         estado = ESTADO_GAMEOVER
                         inicio_tempo_ms = None
             else:
                 if not jog.esta_invencivel():
+                    som_colisao.play()
                     jog.defini_invencivel(800)
                     jog.vidas -= 1
                     if jog.vidas <= 0:
@@ -911,6 +983,7 @@ while executando:
                     nome_input = ""
                     estado = ESTADO_VITORIA
                     inicio_tempo_ms = None
+                    som_vitoria.play()
         else:
             mundo_top_calc, mundo_bottom_calc = limites_fase(fase, faixa_controladores)
             finish_y = mundo_top_calc + TOPO_FAIXA
@@ -950,6 +1023,11 @@ while executando:
         camera_y = max(min_cam, min(max_cam, camera_y))
 
         garantir_topo_preenchido()
+
+    if estado_anterior != estado and estado in (ESTADO_GAMEOVER, ESTADO_INFINITO_NOME):
+        som_gameover.play()
+
+    atualizar_musica(estado)
 
     tela.fill(FUNDO)
 
