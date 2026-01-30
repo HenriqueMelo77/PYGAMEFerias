@@ -1,4 +1,4 @@
-# PYGAMEFerias
+# Raposa Louca
 
 Pygame desenvolvido por Gabriel Michinhote, Henrique Melo e João Pita.
 
@@ -10,17 +10,18 @@ https://youtube.com/shorts/abC1gGGweOg?feature=share
 Para criação desse jogo, tomamos como inspiração, além da mecânica do próprio jogo e alguns estilos, esse vídeo no YouTube: https://youtu.be/lTfaa0rNLvk?si=2vq5muH62htDG2Vh, e utilizamos de IAs generativas para algumas instruções, como importação de sons e imagens, qualificação de movimentações e em alguns desenvolvimentos.
 
 Visando o melhor funcionamento e jogabilidade, é recomendado ter os seguintes arquivos no repositório:
- -8bit-jump.wav
- -part-1-normal-mode-party-club-mr-cloud.wav
- -city-car-horn-soundbible.wav
- -jump-crush-loud-online-audio-converter.wav
- -240721__amishaque__click.wav
- -video-game-end.wav
- -apertar.png, Game_Over.png, game_over2.png, inicio.png
- -grama.png, rua01.png
- -fox01.png, fox02.png, fox03.png (raposa)
- -caminhao1.png, caminhao2.png, caminhao3.png (caminhão)
- -carro1.png, carro2.png, carro3.png, carro4.png, carro5.png, carro6.png (carro)
+    -transito durante o jogo.wav
+    -carro batendo na raposa.wav
+    -click.wav
+    -clique do botao.wav
+    -gameover.wav
+    -musica de fundo da tela inicial.wav
+    -pulo da raposa.wav
+    -vitoria.wav
+    -grama.png, rua01.png (mapa)
+    -fox01.png, fox02.png, fox03.png (raposa/jogador)
+    -carro1.png, carro2.png, carro3.png, carro4.png, carro5.png, carro6.png (carros/inimigos)
+    -caminhao1.png, caminhao2.png, caminhao3.png (caminhoes/inimigos)
 
 MODO DE EXECUÇÃO
 
