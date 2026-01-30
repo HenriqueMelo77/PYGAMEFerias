@@ -61,16 +61,17 @@ inicio_tempo_ms = None
 pausa_inicio_ms = None
 
 # Botões
-BTN_W, BTN_H = 220, 56
-BTN_SPACING = 24
-center_x = LARGURA // 2
+BOTAO_LARGURA, BOTAO_ALTURA = 220, 56
+ESPACAMENTO_BOTAO = 24
+centro_x = LARGURA // 2
 
 # Variáveis auxiliares
 tempo_vitoria_secs = 0.0
-nome_input = ""
+nome_entrada = ""
 
 # Para modo infinito
 pontuacao_infinito = 0
+faixas_visitadas = set()  # faixas já visitadas (índices absolutos)
 
 # Padrões de faixas por fase (mantidos)
 PADROES_FAIXA_POR_FASE = {
@@ -102,6 +103,18 @@ VELOCIDADES_FAIXA_POR_FASE = {
     2: [240, 240, 220, 200, 180, 160, 160, 140, 120]
 }
 
+# --- Novas variáveis/constantes relacionadas à câmera e geração dinâmica ---
+BUFFER_FAIXAS_VISIVEIS = 3
+MAX_FAIXAS_MANTER = 48
+
+# Mundo / câmera (valores serão inicializados abaixo)
+camera_y = 0.0
+mundo_topo = 0.0
+mundo_inferior = 0.0
+comeco_centro_y = 0.0
+contagem_faixas_geradas = 0
+seguindo_ativo = False
+
 # Classes do jogo
 class Botao:
     def __init__(self, rect, texto):
@@ -111,8 +124,8 @@ class Botao:
         pygame.draw.rect(surf, CINZA, self.rect)
         txt = font.render(self.texto, True, PRETO)
         surf.blit(txt, (self.rect.centerx - txt.get_width() // 2, self.rect.centery - txt.get_height() // 2))
-    def clicado(self, mx, my):
-        return self.rect.collidepoint(mx,my)
+    def clicado(self, mouse_x, mouse_y):
+        return self.rect.collidepoint(mouse_x,mouse_y)
 
 class Jogador(pygame.sprite.Sprite):
     def __init__(self, start_pos):
@@ -121,34 +134,51 @@ class Jogador(pygame.sprite.Sprite):
         self.surf.fill(COR_JOGADOR)
         self.rect = self.surf.get_rect(center=start_pos)
         self.vidas = 3
+        self.invencivel_ate = 0
 
     def movimentacao(self, dx, dy):
         self.rect.x += dx
         self.rect.y += dy
         self.rect.left = max(0, self.rect.left)
         self.rect.right = min(LARGURA, self.rect.right)
-        self.rect.top = max(0, self.rect.top)
-        self.rect.bottom = min(ALTURA, self.rect.bottom)
+        if modo_jogo == 'campanha':
+            self.rect.top = max(0, self.rect.top)
+            self.rect.bottom = min(ALTURA, self.rect.bottom)
 
     def reseta_comeco(self):
-        self.rect.midbottom = (LARGURA // 2, ALTURA - 30)
+        if modo_jogo == 'campanha':
+            self.rect.midbottom = (LARGURA // 2, ALTURA - 30)
+        else:
+            self.rect.centerx = LARGURA // 2
+            self.rect.centery = comeco_centro_y
+
+    def esta_invencivel(self):
+        return pygame.time.get_ticks() < getattr(self, "invencivel_ate", 0)
+
+    def defini_invencivel(self, duracao_ms):
+        self.invencivel_ate = pygame.time.get_ticks() + duracao_ms
 
 class Carro(pygame.sprite.Sprite):
-    def __init__(self, centro_y, direcao, vel):
+    def __init__(self, centro_y, direcao, vel, x_inicial=None, deslocamento_spawn=0):
         super().__init__()
         self.surf = pygame.Surface((CARRO_LARGURA, CARRO_ALTURA))
         self.surf.fill(CARRO_COR)
         self.rect = self.surf.get_rect()
         self.rect.centery = centro_y
         self.direcao = direcao
-        self.vel = vel
-        if direcao == 1:
-            self.rect.left = -CARRO_LARGURA - 10
+        self.vel = float(vel)
+        if x_inicial is not None:
+            self.x = float(x_inicial)
         else:
-            self.rect.right = LARGURA + 10
+            if direcao == 1:
+                self.x = float(-self.rect.width - 10 + deslocamento_spawn)
+            else:
+                self.x = float(LARGURA + 10 - deslocamento_spawn)
+        self.rect.x = int(self.x)
 
-    def update(self, dt):
-        self.rect.x += int(self.vel * self.direcao * dt)
+    def update(self, tempo_delta):
+        self.x += self.vel * self.direcao * tempo_delta
+        self.rect.x = int(self.x)
         if self.direcao == 1 and self.rect.left > LARGURA + 200:
             self.kill()
         if self.direcao == -1 and self.rect.right < -200:
@@ -161,31 +191,58 @@ class FaixaController:
         self.direcao = direcao
         self.vel = vel
         self.formato = formato_grupo
-        self.formato_idx = 0
+        self.indice_formato = 0
         self.estado = "waiting"
         self.prox_acao = pygame.time.get_ticks()
+        self.spawnados_no_grupo = 0
+        self.prox_spawn_interno = 0
 
-    def update(self, agora_ms, grupo_carros):
+    def atualizar(self, agora_ms, grupo_carros):
         if self.estado == "waiting":
             if agora_ms >= self.prox_acao:
                 self.estado = "spawning_group"
+                self.spawnados_no_grupo = 0
+                self.prox_spawn_interno = agora_ms
         elif self.estado == "spawning_group":
-            conta, espera = self.formato[self.formato_idx]
-            for i in range(conta):
-                novo_carro = Carro(self.centro_y, self.direcao, self.vel)
+            if not self.formato:
+                self.formato = [(3, 1200)]
+            conta, espera = self.formato[self.indice_formato]
+            if conta == 0:
+                self.indice_formato = (self.indice_formato + 1) % len(self.formato)
+                self.estado = "waiting"
+                self.prox_acao = agora_ms + max(50, espera)
+                return
+
+            espacamento_spawn = max(ESPACAMENTO_GRUPO, 2)
+            largura_grupo_total = conta * CARRO_LARGURA + max(0, (conta - 1)) * espacamento_spawn
+            espacamento_entre_grupos = 3 * TAM_JOGADOR
+            vel_px_por_s = max(1.0, float(self.vel))
+            min_wait_ms = int(((largura_grupo_total + espacamento_entre_grupos) / vel_px_por_s) * 1000)
+
+            if agora_ms >= self.prox_spawn_interno:
+                VARIACAO_SPAWN = 30
+                variacao = random.randint(0, VARIACAO_SPAWN)
                 if self.direcao == 1:
-                    novo_carro.rect.left = -CARRO_LARGURA - 10 - i * (CARRO_LARGURA + ESPACAMENTO_GRUPO)
+                    primeira_esquerda = - largura_grupo_total - variacao
                 else:
-                    novo_carro.rect.right = LARGURA + 10 + i * (CARRO_LARGURA + ESPACAMENTO_GRUPO)
-                grupo_carros.add(novo_carro)
-            self.prox_acao = agora_ms + espera
-            self.formato_idx = (self.formato_idx + 1) % len(self.formato)
-            self.estado = "waiting"
+                    primeira_esquerda = LARGURA + variacao
+
+                for i in range(conta):
+                    x = primeira_esquerda + i * (CARRO_LARGURA + espacamento_spawn)
+                    c = Carro(self.centro_y, self.direcao, self.vel, x_inicial=x)
+                    grupo_carros.add(c)
+
+                self.spawnados_no_grupo = conta
+                self.estado = "waiting"
+                self.prox_acao = agora_ms + max(50, espera, min_wait_ms)
+                self.indice_formato = (self.indice_formato + 1) % len(self.formato)
 
 def criacao_inicial_grupos(grupo_carros, controladores):
     grupo_carros.empty()
     for ctrl in controladores:
-        conta, espera = ctrl.formato[ctrl.formato_idx]
+        if not ctrl.formato:
+            ctrl.formato = [(3,1500)]
+        conta, espera = ctrl.formato[ctrl.indice_formato]
         if conta <= 0:
             ctrl.prox_acao = pygame.time.get_ticks() + espera
             continue
@@ -198,9 +255,11 @@ def criacao_inicial_grupos(grupo_carros, controladores):
             novo_carro = Carro(ctrl.centro_y, ctrl.direcao, ctrl.vel)
             if ctrl.direcao == 1:
                 novo_carro.rect.left = int(primeira_esquerda + i * (CARRO_LARGURA + ESPACAMENTO_GRUPO))
+                novo_carro.x = novo_carro.rect.x
             else:
                 direita_desejada = primeira_esquerda + total_group_largura
                 novo_carro.rect.right = int(direita_desejada - i * (CARRO_LARGURA + ESPACAMENTO_GRUPO))
+                novo_carro.x = novo_carro.rect.x
             grupo_carros.add(novo_carro)
         ctrl.prox_acao = pygame.time.get_ticks() + espera
 
@@ -216,7 +275,7 @@ def construir_controladores_por_fase(fase, qtd_faixas_override=None):
         velocidades = VELOCIDADES_FAIXA_POR_FASE.get(2, [])
 
     for i in range(qtd_faixas):
-        y_top = TOPO_FAIXA + i * (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
+        topo_y = TOPO_FAIXA + i * (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
         direcao = 1 if (i % 2 == 0) else -1
         if random.random() < 0.5:
             direcao *= -1
@@ -231,31 +290,222 @@ def construir_controladores_por_fase(fase, qtd_faixas_override=None):
         else:
             formato = [(3,1500)]
 
-        ctrl = FaixaController(i, y_top, direcao, base_vel, formato)
+        ctrl = FaixaController(i, topo_y, direcao, base_vel, formato)
         ctrl.prox_acao = pygame.time.get_ticks() + random.randint(0,1500)
         controladores.append(ctrl)
     return controladores
 
+def limites_fase(fase, controladores):
+    if not controladores:
+        return 0, 0
+    topo = min(c.centro_y - FAIXA_ALTURA//2 for c in controladores)
+    bottom = max(c.centro_y + FAIXA_ALTURA//2 for c in controladores)
+    return topo, bottom
+
+def garantir_topo_preenchido():
+    global faixa_controladores, mundo_topo, contagem_faixas_geradas
+    if not faixa_controladores:
+        return
+    faixas_visiveis = int((ALTURA / FAIXA_ALTURA)) + BUFFER_FAIXAS_VISIVEIS
+    while len(faixa_controladores) < faixas_visiveis:
+        topo_no_momento = faixa_controladores[0]
+        novo_indice = topo_no_momento.faixa_index - 1
+        topo_y = faixa_controladores[0].centro_y
+        if modo_jogo == 'infinito':
+            padroes_fase2 = PADROES_FAIXA_POR_FASE.get(2, [])
+            velocidades_fase2 = VELOCIDADES_FAIXA_POR_FASE.get(2, [])
+            if padroes_fase2:
+                padrao = padroes_fase2[contagem_faixas_geradas % len(padroes_fase2)]
+            else:
+                padrao = [(3,1500)]
+            if velocidades_fase2:
+                velo = velocidades_fase2[contagem_faixas_geradas % len(velocidades_fase2)]
+            else:
+                velo = 140
+            direcao = 1 if random.random() < 0.5 else -1
+        else:
+            padrao = random.choice(PADROES_FAIXA_POR_FASE.get(1, [[(3,1500)]]))
+            direcao = 1 if random.random() < 0.5 else -1
+            velos = VELOCIDADES_FAIXA_POR_FASE.get(1, [])
+            velo = random.choice(velos) if velos else 140
+        novo = FaixaController(novo_indice, topo_y - (FAIXA_ALTURA + ESPACAMENTO_FAIXA), direcao, velo, padrao)
+        novo.faixa_index = novo_indice
+        novo.centro_y = faixa_controladores[0].centro_y - (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
+        faixa_controladores.insert(0, novo)
+        mundo_topo = min(mundo_topo, novo.centro_y - FAIXA_ALTURA//2)
+        try:
+            contagem, espera_depois = novo.formato[novo.indice_formato]
+        except Exception:
+            contagem, espera_depois = 0,0
+        if contagem > 0:
+            espacamento_spawn = max(ESPACAMENTO_GRUPO, 2)
+            largura_grupo_total = contagem * CARRO_LARGURA + max(0, (contagem - 1)) * espacamento_spawn
+            alvo_cx = random.randint(int(LARGURA*0.15), int(LARGURA*0.85))
+            primeira_esquerda = alvo_cx - largura_grupo_total // 2
+            for i in range(contagem):
+                x_spawn = primeira_esquerda + i * (CARRO_LARGURA + espacamento_spawn)
+                carros.add(Carro(novo.centro_y, novo.direcao, novo.vel, x_inicial=x_spawn))
+            novo.prox_acao = pygame.time.get_ticks() + max(80, espera_depois // 3)
+        contagem_faixas_geradas += 1
+
+def criar_faixa_topo():
+    global faixa_controladores, mundo_topo, contagem_faixas_geradas
+    if not faixa_controladores:
+        return
+    topo_no_momento = faixa_controladores[0]
+    novo_indice = topo_no_momento.faixa_index - 1
+    topo_y = topo_no_momento.centro_y
+    if modo_jogo == 'infinito':
+        padroes_fase2 = PADROES_FAIXA_POR_FASE.get(2, [])
+        velocidades_fase2 = VELOCIDADES_FAIXA_POR_FASE.get(2, [])
+        if padroes_fase2:
+            padrao = padroes_fase2[contagem_faixas_geradas % len(padroes_fase2)]
+        else:
+            padrao = [(3,1500)]
+        if velocidades_fase2:
+            velo = velocidades_fase2[contagem_faixas_geradas % len(velocidades_fase2)]
+        else:
+            velo = 140
+        direction = 1 if random.random() < 0.5 else -1
+    else:
+        padrao = random.choice(PADROES_FAIXA_POR_FASE.get(1, [[(3,1500)]]))
+        direction = 1 if random.random() < 0.5 else -1
+        velos = VELOCIDADES_FAIXA_POR_FASE.get(1, [])
+        velo = random.choice(velos) if velos else 140
+    novo = FaixaController(novo_indice, topo_y - (FAIXA_ALTURA + ESPACAMENTO_FAIXA), direction, velo, padrao)
+    novo.faixa_index = novo_indice
+    novo.centro_y = faixa_controladores[0].centro_y - (FAIXA_ALTURA + ESPACAMENTO_FAIXA)
+    faixa_controladores.insert(0, novo)
+    mundo_topo = min(mundo_topo, novo.centro_y - FAIXA_ALTURA//2)
+    try:
+        contagem, espera_depois = novo.formato[novo.indice_formato]
+    except Exception:
+        contagem, espera_depois = 0,0
+    if contagem > 0:
+        espacamento_spawn = max(ESPACAMENTO_GRUPO, 2)
+        largura_grupo_total = contagem * CARRO_LARGURA + max(0, (contagem - 1)) * espacamento_spawn
+        alvo_cx = random.randint(int(LARGURA*0.15), int(LARGURA*0.85))
+        primeira_esquerda = alvo_cx - largura_grupo_total // 2
+        for i in range(contagem):
+            x_spawn = primeira_esquerda + i * (CARRO_LARGURA + espacamento_spawn)
+            carros.add(Carro(novo.centro_y, novo.direcao, novo.vel, x_inicial=x_spawn))
+        novo.prox_acao = pygame.time.get_ticks() + max(80, espera_depois // 3)
+    contagem_faixas_geradas += 1
+    aparar_faixas()
+
+def aparar_faixas():
+    global faixa_controladores, carros, mundo_inferior
+    if not faixa_controladores:
+        return
+    while len(faixa_controladores) > MAX_FAIXAS_MANTER:
+        remove = faixa_controladores.pop()
+        for spr in list(carros):
+            try:
+                if abs(spr.rect.centery - (remove.centro_y)) < FAIXA_ALTURA//2:
+                    spr.kill()
+            except Exception:
+                pass
+        if faixa_controladores:
+            ultima = faixa_controladores[-1]
+            mundo_inferior = ultima.centro_y + FAIXA_ALTURA // 2
+
+def mover_jogador_vertical_passo(direcao):
+    global comeco_centro_y, carros, faixa_controladores, contagem_faixas_geradas, pontuacao_infinito, faixas_visitada
+    if not faixa_controladores:
+        return
+    centros = [c.centro_y for c in faixa_controladores]
+    altura_passo = FAIXA_ALTURA
+    def indice_mais_proximo(y):
+        return min(range(len(centros)), key=lambda i: abs(centros[i] - y))
+    if direcao == -1:
+        ultima_faixa_centro = centros[-1]
+        if jog.rect.centery > ultima_faixa_centro:
+            novo_y = jog.rect.centery - altura_passo
+            if novo_y < ultima_faixa_centro:
+                novo_y = ultima_faixa_centro
+            jog.rect.centery = novo_y
+        else:
+            idx = indice_mais_proximo(jog.rect.centery)
+            new_idx = max(0, idx - 1)
+            jog.rect.centery = centros[new_idx]
+
+        try:
+            controlador_mais_proximo = min(faixa_controladores, key=lambda c: abs(c.centro_y - jog.rect.centery))
+            indice_absoluto = controlador_mais_proximo.faixa_index
+            if modo_jogo == 'infinito':
+                if indice_absoluto not in faixas_visitada:
+                    faixas_visitada.add(indice_absoluto)
+                    pontuacao_infinito += 1
+        except Exception:
+            pass
+
+        meio_tela_mundo = camera_y + ALTURA // 2
+        if jog.rect.centery < meio_tela_mundo:
+            criar_faixa_topo()
+    else:
+        ultima_faixa_centro = centros[-1]
+        if jog.rect.centery >= ultima_faixa_centro:
+            novo_y = jog.rect.centery + altura_passo
+            if novo_y > comeco_centro_y:
+                novo_y = comeco_centro_y
+            jog.rect.centery = novo_y
+        else:
+            idx = indice_mais_proximo(jog.rect.centery)
+            if idx == len(centros) - 1:
+                jog.rect.centery = ultima_faixa_centro + altura_passo
+            else:
+                new_idx = min(len(centros)-1, idx + 1)
+                jog.rect.centery = centros[new_idx]
+    jog.rect.centerx = max(TAM_JOGADOR//2, min(LARGURA - TAM_JOGADOR//2, jog.rect.centerx))
+
 def resetar_estado_fase(fase):
-    global carros, faixa_controladores
+    global carros, faixa_controladores, mundo_topo, mundo_inferior, comeco_centro_y, camera_y, lanes_generated_count, faixas_visitada
     carros.empty()
     faixa_controladores = construir_controladores_por_fase(fase)
-    criacao_inicial_grupos(carros, faixa_controladores)
+    try:
+        if modo_jogo == 'campanha' and faixa_controladores:
+            faixa_controladores[0].formato = [(0,0)]
+    except Exception:
+        pass
+    mundo_topo, mundo_inferior = limites_fase(fase, faixa_controladores)
+    comeco_centro_y = mundo_inferior + FAIXA_ALTURA
     jog.reseta_comeco()
+    camera_y = mundo_inferior - ALTURA
+    criacao_inicial_grupos(carros, faixa_controladores)
+    garantir_topo_preenchido()
+    contagem_faixas_geradas = len(faixa_controladores)
+    faixas_visitada = set()
+    if faixa_controladores:
+        inicial_abs_index = faixa_controladores[-1].faixa_index
+        faixas_visitada.add(inicial_abs_index)
 
 def resetar_estado_infinito():
-    global carros, faixa_controladores
+    global carros, faixa_controladores, mundo_topo, mundo_inferior, comeco_centro_y, camera_y, contagem_faixas_geradas, faixas_visitada, pontuacao_infinito
     carros.empty()
-    faixa_controladores = construir_controladores_por_fase(1, qtd_faixas_override=7)
-    criacao_inicial_grupos(carros, faixa_controladores)
+    faixa_controladores = construir_controladores_por_fase(1, qtd_faixas_override=QTD_FAIXAS)
+    mundo_topo, mundo_inferior = limites_fase(1, faixa_controladores)
+    comeco_centro_y = mundo_inferior + 200
     jog.reseta_comeco()
+    camera_y = mundo_inferior + 100000
+    garantir_topo_preenchido()
+    contagem_faixas_geradas = len(faixa_controladores)
+    pontuacao_infinito = 0
+    faixas_visitada = set()
+    if faixa_controladores:
+        inicial_abs_index = faixa_controladores[-1].faixa_index
+        faixas_visitada.add(inicial_abs_index)
 
 def verificar_colisoes_e_reset(jogador, carros, controladores):
-    colisao = pygame.sprite.spritecollideany(jogador, carros)
-    if colisao:
+    colisao_detectada = pygame.sprite.spritecollideany(jogador, carros)
+    if colisao_detectada:
         jogador.reseta_comeco()
         carros.empty()
         novas_controladores = construir_controladores_por_fase(fase)
+        try:
+            if modo_jogo == 'campanha' and novas_controladores:
+                novas_controladores[0].formato = [(0,0)]
+        except Exception:
+            pass
         criacao_inicial_grupos(carros, novas_controladores)
         controladores[:] = novas_controladores
         return True
@@ -266,19 +516,19 @@ def carregar_ranking():
         return []
     try:
         with open(PASTA_RANKING, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                data_sorted = sorted(data, key=lambda x: x.get("time", float("inf")))
-                return data_sorted[:10]
+            dados = json.load(f)
+            if isinstance(dados, list):
+                dados_ordenados = sorted(dados, key=lambda x: x.get("time", float("inf")))
+                return dados_ordenados[:10]
     except Exception:
         pass
     return []
 
-def salvar_ranking(entries):
+def salvar_ranking(entradas):
     try:
-        entries_sorted = sorted(entries, key=lambda x: x.get("time", float("inf")))[:10]
+        entradas_ordenadas = sorted(entradas, key=lambda x: x.get("time", float("inf")))[:10]
         with open(PASTA_RANKING, "w", encoding="utf-8") as f:
-            json.dump(entries_sorted, f, ensure_ascii=False, indent=2)
+            json.dump(entradas_ordenadas, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Erro salvando ranking:", e)
 
@@ -287,57 +537,65 @@ def carregar_ranking_infinito():
         return []
     try:
         with open(PASTA_RANKING_INFINITO, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                data_sorted = sorted(data, key=lambda x: x.get("score", 0), reverse=True)
-                return data_sorted[:10]
+            dados = json.load(f)
+            if isinstance(dados, list):
+                dados_ordenados = sorted(dados, key=lambda x: x.get("score", 0), reverse=True)
+                return dados_ordenados[:10]
     except Exception:
         pass
     return []
 
-def salvar_ranking_infinito(entries):
+def salvar_ranking_infinito(entradas):
     try:
-        entries_sorted = sorted(entries, key=lambda x: x.get("score", 0), reverse=True)[:10]
+        entradas_ordenadas = sorted(entradas, key=lambda x: x.get("score", 0), reverse=True)[:10]
         with open(PASTA_RANKING_INFINITO, "w", encoding="utf-8") as f:
-            json.dump(entries_sorted, f, ensure_ascii=False, indent=2)
+            json.dump(entradas_ordenadas, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print("Erro salvando ranking infinito:", e)
 
-# Inicialização do jogo
 jog = Jogador(JOGADOR_POS_INICIAL)
-jog.reseta_comeco()
-
-# Grupos e controladores
 carros = pygame.sprite.Group()
 fase = 1
 faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
 
+mundo_topo, mundo_inferior = limites_fase(fase, faixa_controladores)
+comeco_centro_y = mundo_inferior + FAIXA_ALTURA
+jog.reseta_comeco()
+camera_y = mundo_inferior - ALTURA
+garantir_topo_preenchido()
+contagem_faixas_geradas = len(faixa_controladores)
+
+faixas_visitada = set()
+if faixa_controladores:
+    inicial_abs_index = faixa_controladores[-1].faixa_index
+    faixas_visitada.add(inicial_abs_index)
+
 # Botões
-btn_campanha = Botao((center_x - BTN_W - 12, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Campanha")
-btn_infinito = Botao((center_x + 12, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Infinito")
-btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
-btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sair")
-btn_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
-btn_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
-btn_reiniciar_gameover = Botao((center_x - 240, 360, 200, 56), "Reinício rápido (R)")
-btn_voltar_menu_gameover = Botao((center_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
-btn_continuar = Botao((center_x - BTN_W//2, 300, BTN_W, BTN_H), "Continuar (ESC)")
-btn_voltar_menu_pausa = Botao((center_x - BTN_W//2, 300 + BTN_H + 20, BTN_W, BTN_H), "Voltar ao Menu")
-btn_voltar_menu_preparo = Botao((center_x - BTN_W//2, 420, BTN_W, BTN_H), "Voltar ao Menu (ESC)")
-btn_reiniciar_ranking_inf = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
-btn_voltar_menu_ranking_inf = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
+botao_campanha = Botao((centro_x - BOTAO_LARGURA - 12, 320+ (BOTAO_ALTURA + 28)/20, BOTAO_LARGURA, BOTAO_ALTURA), "Campanha")
+botao_infinito = Botao((centro_x + 12, 320+ (BOTAO_ALTURA + 28)/20, BOTAO_LARGURA, BOTAO_ALTURA), "Infinito")
+botao_info = Botao((centro_x - BOTAO_LARGURA//2, 320 + BOTAO_ALTURA + 28, BOTAO_LARGURA, BOTAO_ALTURA), "Informações")
+botao_sair = Botao((centro_x - BOTAO_LARGURA//2, 320 + (BOTAO_ALTURA + 28)*2, BOTAO_LARGURA, BOTAO_ALTURA), "Sair")
+botao_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
+botao_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
+botao_reiniciar_gameover = Botao((centro_x - 240, 360, 200, 56), "Reinício rápido (R)")
+botao_voltar_menu_gameover = Botao((centro_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
+botao_continuar = Botao((centro_x - BOTAO_LARGURA//2, 300, BOTAO_LARGURA, BOTAO_ALTURA), "Continuar (ESC)")
+botao_voltar_menu_pausa = Botao((centro_x - BOTAO_LARGURA//2, 300 + BOTAO_ALTURA + 20, BOTAO_LARGURA, BOTAO_ALTURA), "Voltar ao Menu")
+botao_voltar_menu_preparo = Botao((centro_x - BOTAO_LARGURA//2, 420, BOTAO_LARGURA, BOTAO_ALTURA), "Voltar ao Menu (ESC)")
+botao_reiniciar_ranking_inf = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
+botao_voltar_menu_ranking_inf = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
 
 # Loop principal
-running = True
-while running:
-    dt_ms = clock.tick(FPS)
-    dt = dt_ms / 1000.0
+executando = True
+while executando:
+    tempo_ms = clock.tick(FPS)
+    tempo_delta = tempo_ms / 1000.0
     agora_ms = pygame.time.get_ticks()
 
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
-            running = False
+            executando = False
 
         if event.type == pygame.KEYDOWN:
             if estado == ESTADO_RANKING:
@@ -385,9 +643,9 @@ while running:
                 if event.key == pygame.K_BACKSPACE:
                     nome_input = nome_input[:-1]
                 elif event.key == pygame.K_RETURN:
-                    entries = carregar_ranking_infinito()
-                    entries.append({"name": nome_input if nome_input.strip() != "" else "Anon", "score": pontuacao_infinito})
-                    salvar_ranking_infinito(entries)
+                    entradas = carregar_ranking_infinito()
+                    entradas.append({"name": nome_input if nome_input.strip() != "" else "Anon", "score": pontuacao_infinito})
+                    salvar_ranking_infinito(entradas)
                     nome_input = ""
                     estado = ESTADO_RANKING_INFINITO
                 else:
@@ -401,9 +659,9 @@ while running:
                 if event.key == pygame.K_BACKSPACE:
                     nome_input = nome_input[:-1]
                 elif event.key == pygame.K_RETURN:
-                    entries = carregar_ranking()
-                    entries.append({"name": nome_input if nome_input.strip() != "" else "Anon", "time": round(tempo_vitoria_secs, 3)})
-                    salvar_ranking(entries)
+                    entradas = carregar_ranking()
+                    entradas.append({"name": nome_input if nome_input.strip() != "" else "Anon", "time": round(tempo_vitoria_secs, 3)})
+                    salvar_ranking(entradas)
                     nome_input = ""
                     estado = ESTADO_RANKING
                 else:
@@ -470,33 +728,39 @@ while running:
                 elif event.key in (pygame.K_RIGHT, pygame.K_d):
                     jog.movimentacao(PASSO_X, 0)
                 elif event.key in (pygame.K_UP, pygame.K_w):
-                    jog.movimentacao(0, -PASSO_Y)
+                    if modo_jogo == 'campanha':
+                        jog.movimentacao(0, -PASSO_Y)
+                    else:
+                        mover_jogador_vertical_passo(-1)
                 elif event.key in (pygame.K_DOWN, pygame.K_s):
-                    jog.movimentacao(0, PASSO_Y)
+                    if modo_jogo == 'campanha':
+                        jog.movimentacao(0, PASSO_Y)
+                    else:
+                        mover_jogador_vertical_passo(+1)
             elif estado == ESTADO_MENU:
                 if event.key == pygame.K_ESCAPE:
-                    running = False
+                    executando = False
             elif estado == ESTADO_INFO:
                 if event.key == pygame.K_ESCAPE:
                     estado = ESTADO_MENU
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            mx,my = event.pos
+            mouse_x,mouse_y = event.pos
             if estado == ESTADO_MENU:
-                if btn_campanha.clicado(mx,my):
+                if botao_campanha.clicado(mouse_x,mouse_y):
                     modo_jogo = 'campanha'
                     estado = ESTADO_PREPARO
-                elif btn_infinito.clicado(mx,my):
+                elif botao_infinito.clicado(mouse_x,mouse_y):
                     modo_jogo = 'infinito'
                     estado = ESTADO_PREPARO
-                elif btn_info.clicado(mx,my):
+                elif botao_info.clicado(mouse_x,mouse_y):
                     estado = ESTADO_INFO
-                elif btn_sair.clicado(mx,my):
-                    running = False
+                elif botao_sair.clicado(mouse_x,mouse_y):
+                    executando = False
             elif estado == ESTADO_INFO:
                 estado = ESTADO_MENU
             elif estado == ESTADO_RANKING:
-                if btn_reiniciar_ranking.clicado(mx, my):
+                if botao_reiniciar_ranking.clicado(mouse_x, mouse_y):
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -504,20 +768,20 @@ while running:
                     jog.reseta_comeco()
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
-                if btn_voltar_menu_ranking.clicado(mx, my):
+                if botao_voltar_menu_ranking.clicado(mouse_x, mouse_y):
                     estado = ESTADO_MENU
             elif estado == ESTADO_RANKING_INFINITO:
-                if btn_reiniciar_ranking_inf.clicado(mx, my):
+                if botao_reiniciar_ranking_inf.clicado(mouse_x, mouse_y):
                     modo_jogo = 'infinito'
                     pontuacao_infinito = 0
                     jog.vidas = 1
                     resetar_estado_infinito()
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = None
-                if btn_voltar_menu_ranking_inf.clicado(mx, my):
+                if botao_voltar_menu_ranking_inf.clicado(mouse_x, mouse_y):
                     estado = ESTADO_MENU
             elif estado == ESTADO_GAMEOVER:
-                if btn_reiniciar_gameover.clicado(mx, my):
+                if botao_reiniciar_gameover.clicado(mouse_x, mouse_y):
                     modo_jogo = 'campanha'
                     fase = 1
                     jog.vidas = 3
@@ -525,49 +789,48 @@ while running:
                     jog.reseta_comeco()
                     estado = ESTADO_JOGANDO
                     inicio_tempo_ms = pygame.time.get_ticks()
-                if btn_voltar_menu_gameover.clicado(mx, my):
+                if botao_voltar_menu_gameover.clicado(mouse_x, mouse_y):
                     estado = ESTADO_MENU
             elif estado == ESTADO_PAUSADO:
-                if btn_continuar.clicado(mx, my):
+                if botao_continuar.clicado(mouse_x, mouse_y):
                     if pausa_inicio_ms is not None and inicio_tempo_ms is not None:
                         delta = pygame.time.get_ticks() - pausa_inicio_ms
                         inicio_tempo_ms += delta
                     pausa_inicio_ms = None
                     estado = ESTADO_JOGANDO
-                if btn_voltar_menu_pausa.clicado(mx, my):
+                if botao_voltar_menu_pausa.clicado(mouse_x, mouse_y):
                     pausa_inicio_ms = None
                     inicio_tempo_ms = None
                     estado = ESTADO_MENU
             elif estado == ESTADO_PREPARO:
-                if btn_voltar_menu_preparo.clicado(mx, my):
+                if botao_voltar_menu_preparo.clicado(mouse_x, mouse_y):
                     estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
         for ctrl in faixa_controladores:
-            ctrl.update(agora_ms, carros)
+            ctrl.atualizar(agora_ms, carros)
         for c in list(carros):
-            c.update(dt)
+            c.update(tempo_delta)
 
-        houve_colisao = pygame.sprite.spritecollideany(jog, carros)
-        if houve_colisao:
+        colisao_detectada = pygame.sprite.spritecollideany(jog, carros)
+        if colisao_detectada:
             if modo_jogo == 'campanha':
-                jog.reseta_comeco()
-                carros.empty()
-                novas_controladores = construir_controladores_por_fase(fase)
-                criacao_inicial_grupos(carros, novas_controladores)
-                faixa_controladores[:] = novas_controladores
-                jog.vidas -= 1
-                if jog.vidas <= 0:
-                    estado = ESTADO_GAMEOVER
-                    inicio_tempo_ms = None
+                reset_colisao = verificar_colisoes_e_reset(jog, carros, faixa_controladores)
+                if reset_colisao:
+                    jog.vidas -= 1
+                    if jog.vidas <= 0:
+                        estado = ESTADO_GAMEOVER
+                        inicio_tempo_ms = None
             else:
-                jog.vidas -= 1
-                if jog.vidas <= 0:
-                    estado = ESTADO_INFINITO_NOME
-                    nome_input = ""
+                if not jog.esta_invencivel():
+                    jog.defini_invencivel(800)
+                    jog.vidas -= 1
+                    if jog.vidas <= 0:
+                        estado = ESTADO_INFINITO_NOME
+                        nome_input = ""
 
-        if jog.rect.top <= TOPO_FAIXA:
-            if modo_jogo == 'campanha':
+        if modo_jogo == 'campanha':
+            if jog.rect.top <= TOPO_FAIXA:
                 if fase == 1:
                     fase = 2
                     resetar_estado_fase(fase)
@@ -579,20 +842,55 @@ while running:
                     nome_input = ""
                     estado = ESTADO_VITORIA
                     inicio_tempo_ms = None
-            else:
+        else:
+            mundo_top_calc, mundo_inferior_calc = limites_fase(fase, faixa_controladores)
+            finish_y = mundo_top_calc + TOPO_FAIXA
+            if jog.rect.top <= finish_y:
                 pontuacao_infinito += 1
                 resetar_estado_infinito()
                 jog.vidas = 1
+
+        mundo_topo, mundo_inferior = limites_fase(fase, faixa_controladores)
+        if not faixa_controladores:
+            min_cam = mundo_topo
+            max_cam = mundo_inferior - ALTURA
+        else:
+            min_cam = mundo_topo
+            if modo_jogo == 'infinito':
+                max_cam = mundo_inferior
+            else:
+                max_cam = mundo_inferior - ALTURA
+        if max_cam < min_cam:
+            max_cam = min_cam
+
+        meio_tela_mundo = camera_y + ALTURA // 2
+
+        if jog.rect.centery < meio_tela_mundo:
+            seguindo_ativo = True
+        if jog.rect.centery > camera_y + int(ALTURA * 0.75):
+            seguindo_ativo = False
+
+        alpha = 0.35
+        if seguindo_ativo:
+            desired_cam = int(jog.rect.centery - ALTURA // 2)
+            camera_y = int(camera_y + (desired_cam - camera_y) * alpha)
+        else:
+            desired_cam = int(max_cam)
+            camera_y = int(camera_y + (desired_cam - camera_y) * (alpha * 0.6))
+
+        camera_y = max(min_cam, min(max_cam, camera_y))
+
+        garantir_topo_preenchido()
 
     tela.fill(FUNDO)
 
     if estado == ESTADO_MENU:
         titulo = big_font.render("CROSSY CLONE", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
-        btn_campanha.desenhar(tela)
-        btn_infinito.desenhar(tela)
-        btn_info.desenhar(tela)
-        btn_sair.desenhar(tela)
+        botao_campanha.desenhar(tela)
+        botao_infinito.desenhar(tela)
+        botao_info.desenhar(tela)
+        botao_sair.desenhar(tela)
 
     elif estado == ESTADO_PREPARO:
         titulo = big_font.render("PREPARE-SE", True, BRANCO)
@@ -607,17 +905,28 @@ while running:
         tela.blit(instr1, ((LARGURA - instr1.get_width()) // 2, 220))
         tela.blit(instr3, ((LARGURA - instr3.get_width()) // 2, 280))
 
-        btn_voltar_menu_preparo.desenhar(tela)
+        botao_voltar_menu_preparo.desenhar(tela)
 
     elif estado == ESTADO_INFO:
         linhas = [
             "Como jogar:",
-            "- Use as setas ou WASD para mover por passos (um passo por tecla).",
-            "- Pressione ESC durante o jogo para pausar.",
-            "- No preparo pressione 'E' para começar.",
-            "- Campanha: duas fases; tempo cronometrado; 3 vidas.",
-            "- Infinito: 1 vida; pontuação por faixa; ranking por pontos.",
-            "- Clique para voltar ao Menu."
+            "- Aperte as setas ou WASD para mover o jogador.",
+            "",
+            "Informações:",
+            "- Modo campanha:",
+            "- Você deve chegar ao topo.",
+            "- Inicia o jogo com 3 vidas.",
+            "- Cada colisão com um carro faz perder 1 vida.",
+            "- Se perder todas as 3 vidas, aparece Game Over com o tempo.",
+            "",
+            "Modo infinito:",
+            "- Subir o máximo que conseguir.",
+            "- Você inicia o modo infinito com 1 vida.",
+            "- Colete power-ups para ganhar vidas extras (máximo 5).",
+            "- Cada colisão com um carro faz perder 1 vida.",
+            "- Se perder suas as vidas, aparece Game Over com a pontuação.",
+            "",
+            "Clique para voltar ao menu."
         ]
         y = 120
         for ln in linhas:
@@ -626,28 +935,23 @@ while running:
             y += 36
 
     elif estado == ESTADO_JOGANDO:
-        # número de faixas a desenhar: pega o tamanho atual dos controladores
-        num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
-
-        topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
-        pygame.draw.rect(tela, AZUL_ESCURO, topo)
-
-        for i in range(num_faixas_para_desenhar):
-            r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
-            pygame.draw.rect(tela, CINZA, r)
-            pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
-
-        for c in carros:
-            tela.blit(c.surf, c.rect)
-        tela.blit(jog.surf, jog.rect)
-
         if modo_jogo == 'campanha':
+            topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+            pygame.draw.rect(tela, AZUL_ESCURO, topo)
+
+            num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
+            for i in range(num_faixas_para_desenhar):
+                r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
+                pygame.draw.rect(tela, CINZA, r)
+                pygame.draw.linha(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+
+            for c in carros:
+                tela.blit(c.surf, c.rect)
+            tela.blit(jog.surf, jog.rect)
+
             texto_vidas = font.render(f"Vidas: {jog.vidas}  Fase: {fase}", True, BRANCO)
-        else:
-            texto_vidas = font.render(f"Vidas: {jog.vidas}  Pontos: {pontuacao_infinito}", True, BRANCO)
-        tela.blit(texto_vidas, (10, 10))
+            tela.blit(texto_vidas, (10, 10))
 
-        if modo_jogo == 'campanha':
             if inicio_tempo_ms is None:
                 tempo_decorrido = 0.0
             else:
@@ -656,19 +960,41 @@ while running:
             x_tempo = LARGURA - texto_tempo.get_width() - 10
             tela.blit(texto_tempo, (x_tempo, 10))
         else:
-            pass
+            topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
+            pygame.draw.rect(tela, AZUL_ESCURO, topo)
+
+            num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
+            for i, ctrl in enumerate(faixa_controladores):
+                r_world_top = ctrl.centro_y - FAIXA_ALTURA//2
+                r_tela_top = r_world_top - camera_y
+                r = pygame.Rect(0, int(r_tela_top), LARGURA, FAIXA_ALTURA)
+                if r.bottom < 0 or r.top > ALTURA:
+                    continue
+                pygame.draw.rect(tela, CINZA, r)
+                pygame.draw.linha(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+
+            for c in carros:
+                tela.blit(c.surf, (c.rect.x, c.rect.y - camera_y))
+
+            tela.blit(jog.surf, (jog.rect.x, jog.rect.y - camera_y))
+
+            texto_vidas = font.render(f"Vidas: {jog.vidas}  Pontos: {pontuacao_infinito}", True, BRANCO)
+            tela.blit(texto_vidas, (10, 10))
 
     elif estado == ESTADO_PAUSADO:
         topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
         pygame.draw.rect(tela, AZUL_ESCURO, topo)
-        num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
-        for i in range(num_faixas_para_desenhar):
-            r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
+        for i, ctrl in enumerate(faixa_controladores):
+            r_world_top = ctrl.centro_y - FAIXA_ALTURA//2
+            r_tela_top = r_world_top - camera_y
+            r = pygame.Rect(0, int(r_tela_top), LARGURA, FAIXA_ALTURA)
+            if r.bottom < 0 or r.top > ALTURA:
+                continue
             pygame.draw.rect(tela, CINZA, r)
-            pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+            pygame.draw.linha(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
         for c in carros:
-            tela.blit(c.surf, c.rect)
-        tela.blit(jog.surf, jog.rect)
+            tela.blit(c.surf, (c.rect.x, c.rect.y - camera_y))
+        tela.blit(jog.surf, (jog.rect.x, jog.rect.y - camera_y))
 
         s = pygame.Surface((LARGURA, ALTURA), pygame.SRCALPHA)
         s.fill((0,0,0,140))
@@ -677,8 +1003,8 @@ while running:
         titulo = big_font.render("PAUSADO", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
 
-        btn_continuar.desenhar(tela)
-        btn_voltar_menu_pausa.desenhar(tela)
+        botao_continuar.desenhar(tela)
+        botao_voltar_menu_pausa.desenhar(tela)
 
         instr = font.render("Pressione ESC para continuar ou R para reiniciar", True, BRANCO)
         tela.blit(instr, ((LARGURA - instr.get_width()) // 2, 480))
@@ -693,31 +1019,31 @@ while running:
         prompt = font.render("Digite seu nome e pressione Enter:", True, BRANCO)
         tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 260))
 
-        box = pygame.Rect((LARGURA//2 - 200, 320, 400, 40))
-        pygame.draw.rect(tela, (240,240,240), box)
-        pygame.draw.rect(tela, PRETO, box, 2)
+        caixa = pygame.Rect((LARGURA//2 - 200, 320, 400, 40))
+        pygame.draw.rect(tela, (240,240,240), caixa)
+        pygame.draw.rect(tela, PRETO, caixa, 2)
         name_surf = font.render(nome_input, True, PRETO)
-        tela.blit(name_surf, (box.x + 8, box.y + 8))
+        tela.blit(name_surf, (caixa.x + 8, caixa.y + 8))
 
     elif estado == ESTADO_RANKING:
-        titulo = big_font.render("RANKING (Campanha)", True, BRANCO)
+        titulo = big_font.render("RANKING", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 20))
 
-        entries = carregar_ranking()
+        entradas = carregar_ranking()
         y = 100
         rank = 1
-        for e in entries:
-            line = f"{rank}. {e['name']} - {e['time']:.3f}s"
-            t = font.render(line, True, BRANCO)
+        for e in entradas:
+            linha = f"{rank}. {e['name']} - {e['time']:.3f}s"
+            t = font.render(linha, True, BRANCO)
             tela.blit(t, (60, y))
             y += 28
             rank += 1
 
-        btn_reiniciar_ranking.desenhar(tela)
-        btn_voltar_menu_ranking.desenhar(tela)
+        botao_reiniciar_ranking.desenhar(tela)
+        botao_voltar_menu_ranking.desenhar(tela)
 
     elif estado == ESTADO_INFINITO_NOME:
-        titulo = big_font.render("Você morreu (INFINITO)", True, BRANCO)
+        titulo = big_font.render("Você morreu", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
 
         t = font.render(f"Sua pontuação: {pontuacao_infinito} pontos", True, BRANCO)
@@ -726,38 +1052,38 @@ while running:
         prompt = font.render("Digite seu nome e pressione Enter:", True, BRANCO)
         tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 240))
 
-        box = pygame.Rect((LARGURA//2 - 200, 300, 400, 40))
-        pygame.draw.rect(tela, (240,240,240), box)
-        pygame.draw.rect(tela, PRETO, box, 2)
+        caixa = pygame.Rect((LARGURA//2 - 200, 300, 400, 40))
+        pygame.draw.rect(tela, (240,240,240), caixa)
+        pygame.draw.rect(tela, PRETO, caixa, 2)
         name_surf = font.render(nome_input, True, PRETO)
-        tela.blit(name_surf, (box.x + 8, box.y + 8))
+        tela.blit(name_surf, (caixa.x + 8, caixa.y + 8))
 
     elif estado == ESTADO_RANKING_INFINITO:
-        titulo = big_font.render("RANKING (Infinito)", True, BRANCO)
+        titulo = big_font.render("RANKING", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 20))
 
-        entries = carregar_ranking_infinito()
+        entradas = carregar_ranking_infinito()
         y = 100
         rank = 1
-        for e in entries:
-            line = f"{rank}. {e['name']} - {e['score']} pts"
-            t = font.render(line, True, BRANCO)
+        for e in entradas:
+            linha = f"{rank}. {e['name']} - {e['score']} pts"
+            t = font.render(linha, True, BRANCO)
             tela.blit(t, (60, y))
             y += 28
             rank += 1
 
-        btn_reiniciar_ranking_inf.desenhar(tela)
-        btn_voltar_menu_ranking_inf.desenhar(tela)
+        botao_reiniciar_ranking_inf.desenhar(tela)
+        botao_voltar_menu_ranking_inf.desenhar(tela)
 
     elif estado == ESTADO_GAMEOVER:
-        titulo = big_font.render("GAME OVER (Campanha)", True, BRANCO)
+        titulo = big_font.render("GAME OVER", True, BRANCO)
         tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
 
         mensagem = font.render("Você perdeu todas as vidas.", True, BRANCO)
         tela.blit(mensagem, ((LARGURA - mensagem.get_width()) // 2, 200))
 
-        btn_reiniciar_gameover.desenhar(tela)
-        btn_voltar_menu_gameover.desenhar(tela)
+        botao_reiniciar_gameover.desenhar(tela)
+        botao_voltar_menu_gameover.desenhar(tela)
 
     pygame.display.flip()
 
