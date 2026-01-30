@@ -54,6 +54,10 @@ tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption("Jogo")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
+info_font = pygame.font.SysFont(None, 28)
+vitoria_font = pygame.font.SysFont(None, 30)
+vitoria_tempo_font = pygame.font.SysFont(None, 36)
+rank_font_campanha = pygame.font.SysFont(None, 36)
 big_font = pygame.font.SysFont(None, 64)
 rank_font = pygame.font.SysFont(None, 32)
 
@@ -62,7 +66,7 @@ inicio_tempo_ms = None
 pausa_inicio_ms = None
 
 # Botões
-BOTAO_LARGURA, BOTAO_ALTURA = 220, 56
+BOTAO_LARGURA, BOTAO_ALTURA = 240, 56
 ESPACAMENTO_BOTAO = 24
 centro_x = LARGURA // 2
 
@@ -116,12 +120,48 @@ comeco_centro_y = 0.0
 contagem_faixas_geradas = 0
 seguindo_ativo = False
 
+# Carregar imagens e fazer resize
+imagem_menu = pygame.transform.scale(pygame.image.load("telas/raposa_louca.png"), (LARGURA, ALTURA))
+imagem_preparo = pygame.transform.scale(pygame.image.load("telas/apertar.png"), (LARGURA, ALTURA))
+imagem_gameover = pygame.transform.scale(pygame.image.load("telas/game_over2.png"), (LARGURA, ALTURA))
+imagem_gameover_infinito = pygame.transform.scale(pygame.image.load("telas/game_over_infinito.png"), (LARGURA, ALTURA))
+imagem_info = pygame.transform.scale(pygame.image.load("telas/tela de fundo.png"), (LARGURA, ALTURA))
+imagem_vitoria = pygame.transform.scale(pygame.image.load("telas/tela_vitoria.png"), (LARGURA, ALTURA))
+imagem_ranking = pygame.transform.scale(pygame.image.load("telas/ranking.png"), (LARGURA, ALTURA))
+
+# Imagens do jogador (raposa)
+imagens_jogador = [
+    pygame.transform.scale(pygame.image.load("raposa/fox01.png"), (TAM_JOGADOR, TAM_JOGADOR)),
+    pygame.transform.scale(pygame.image.load("raposa/fox02.png"), (TAM_JOGADOR, TAM_JOGADOR)),
+    pygame.transform.scale(pygame.image.load("raposa/fox03.png"), (TAM_JOGADOR, TAM_JOGADOR))
+]
+
+# Imagens dos carros
+imagens_carros = [
+    pygame.transform.scale(pygame.image.load("carro/carro1.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/carro2.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/carro3.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/carro4.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/carro5.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/carro6.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/caminhao1.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/caminhao2.png"), (CARRO_LARGURA, CARRO_ALTURA)),
+    pygame.transform.scale(pygame.image.load("carro/caminhao3.png"), (CARRO_LARGURA, CARRO_ALTURA))
+]
+
+# Imagens das faixas e área segura
+imagem_faixa = pygame.transform.scale(pygame.image.load("rua/rua01.png"), (LARGURA, FAIXA_ALTURA))
+imagem_area_segura = pygame.transform.scale(pygame.image.load("rua/grama.png"), (LARGURA, TOPO_FAIXA))
+
 # Classes do jogo
 class Botao:
-    def __init__(self, rect, texto):
+    def __init__(self, rect, texto, visivel=True):
         self.rect = pygame.Rect(rect)
         self.texto = texto
+        self.visivel = visivel
     def desenhar(self, surf):
+        if not self.visivel:
+            return
         pygame.draw.rect(surf, CINZA, self.rect)
         txt = font.render(self.texto, True, PRETO)
         surf.blit(txt, (self.rect.centerx - txt.get_width() // 2, self.rect.centery - txt.get_height() // 2))
@@ -131,11 +171,19 @@ class Botao:
 class Jogador(pygame.sprite.Sprite):
     def __init__(self, start_pos):
         super().__init__()
-        self.surf = pygame.Surface((TAM_JOGADOR, TAM_JOGADOR))
-        self.surf.fill(COR_JOGADOR)
+        self.imagem_index = 0
+        self.surf = imagens_jogador[self.imagem_index].copy()
         self.rect = self.surf.get_rect(center=start_pos)
         self.vidas = 3
         self.invencivel_ate = 0
+        self.frame_counter = 0
+
+    def update_imagem(self):
+        self.frame_counter += 1
+        if self.frame_counter >= 20:  # Troca de imagem a cada 20 frames
+            self.imagem_index = (self.imagem_index + 1) % len(imagens_jogador)
+            self.surf = imagens_jogador[self.imagem_index].copy()
+            self.frame_counter = 0
 
     def movimentacao(self, dx, dy):
         self.rect.x += dx
@@ -162,8 +210,8 @@ class Jogador(pygame.sprite.Sprite):
 class Carro(pygame.sprite.Sprite):
     def __init__(self, centro_y, direcao, vel, x_inicial=None, deslocamento_spawn=0):
         super().__init__()
-        self.surf = pygame.Surface((CARRO_LARGURA, CARRO_ALTURA))
-        self.surf.fill(CARRO_COR)
+        self.imagem_index = random.randint(0, len(imagens_carros) - 1)
+        self.surf = imagens_carros[self.imagem_index].copy()
         self.rect = self.surf.get_rect()
         self.rect.centery = centro_y
         self.direcao = direcao
@@ -579,19 +627,20 @@ if faixa_controladores:
     visited_faixas.add(inicial_abs_index)
 
 # Botões
-botao_campanha = Botao((centro_x - BOTAO_LARGURA - 12, 320+ (BOTAO_ALTURA + 28)/20, BOTAO_LARGURA, BOTAO_ALTURA), "Campanha")
-botao_infinito = Botao((centro_x + 12, 320+ (BOTAO_ALTURA + 28)/20, BOTAO_LARGURA, BOTAO_ALTURA), "Infinito")
-botao_info = Botao((centro_x - BOTAO_LARGURA//2, 320 + BOTAO_ALTURA + 28, BOTAO_LARGURA, BOTAO_ALTURA), "Informações")
-botao_sair = Botao((centro_x - BOTAO_LARGURA//2, 320 + (BOTAO_ALTURA + 28)*2, BOTAO_LARGURA, BOTAO_ALTURA), "Sair")
-botao_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
-botao_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
-botao_reiniciar_gameover = Botao((centro_x - 240, 360, 200, 56), "Reinício rápido (R)")
-botao_voltar_menu_gameover = Botao((centro_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
+botao_campanha = Botao((60, 510, BOTAO_LARGURA, BOTAO_ALTURA), "Campanha", visivel=False)
+botao_infinito = Botao((LARGURA - BOTAO_LARGURA - 60, 510, BOTAO_LARGURA, BOTAO_ALTURA), "Infinito", visivel=False)
+botao_info = Botao((60, 575, BOTAO_LARGURA, BOTAO_ALTURA), "Informações", visivel=False)
+botao_sair = Botao((LARGURA - BOTAO_LARGURA - 60, 575, BOTAO_LARGURA, BOTAO_ALTURA), "Sair", visivel=False)
+botao_reiniciar_ranking = Botao((55, ALTURA - 225, 250, 85), "Reinício rápido (R)", visivel=False)
+botao_voltar_menu_ranking = Botao((LARGURA - 305, ALTURA - 225, 250, 85), "Voltar ao Menu (ESC)", visivel=False)
+botao_reiniciar_gameover = Botao((centro_x - 250, 550, 500, 80), "Reinício rápido (R)", visivel=False)
+botao_voltar_menu_gameover = Botao((centro_x - 250, 450, 500, 80), "Voltar ao Menu (ESC)", visivel=False)
 botao_continuar = Botao((centro_x - BOTAO_LARGURA//2, 300, BOTAO_LARGURA, BOTAO_ALTURA), "Continuar (ESC)")
 botao_voltar_menu_pausa = Botao((centro_x - BOTAO_LARGURA//2, 300 + BOTAO_ALTURA + 20, BOTAO_LARGURA, BOTAO_ALTURA), "Voltar ao Menu")
-botao_voltar_menu_preparo = Botao((centro_x - BOTAO_LARGURA//2, 420, BOTAO_LARGURA, BOTAO_ALTURA), "Voltar ao Menu (ESC)")
-botao_reiniciar_ranking_inf = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
-botao_voltar_menu_ranking_inf = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
+botao_iniciar_jogo = Botao((centro_x - 290, 300, 580, 70), "Iniciar Jogo (E)", visivel=False)
+botao_voltar_menu_preparo = Botao((centro_x - 290, 405, 580, 70), "Voltar ao Menu (ESC)", visivel=False)
+botao_reiniciar_ranking_inf = Botao((55, ALTURA - 225, 250, 85), "Reinício rápido (R)", visivel=False)
+botao_voltar_menu_ranking_inf = Botao((LARGURA - 305, ALTURA - 225, 250, 85), "Voltar ao Menu (ESC)", visivel=False)
 
 # Loop principal
 executando = True
@@ -810,6 +859,19 @@ while executando:
                     inicio_tempo_ms = None
                     estado = ESTADO_MENU
             elif estado == ESTADO_PREPARO:
+                if botao_iniciar_jogo.clicado(mouse_x, mouse_y):
+                    if modo_jogo == 'campanha':
+                        fase = 1
+                        jog.vidas = 3
+                        resetar_estado_fase(fase)
+                        jog.reseta_comeco()
+                        inicio_tempo_ms = pygame.time.get_ticks()
+                    else:
+                        pontuacao_infinito = 0
+                        jog.vidas = 1
+                        resetar_estado_infinito()
+                        inicio_tempo_ms = None
+                    estado = ESTADO_JOGANDO
                 if botao_voltar_menu_preparo.clicado(mouse_x, mouse_y):
                     estado = ESTADO_MENU
 
@@ -892,29 +954,20 @@ while executando:
     tela.fill(FUNDO)
 
     if estado == ESTADO_MENU:
-        titulo = big_font.render("CROSSY CLONE", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+        tela.blit(imagem_menu, (0, 0))
         botao_campanha.desenhar(tela)
         botao_infinito.desenhar(tela)
         botao_info.desenhar(tela)
         botao_sair.desenhar(tela)
 
     elif estado == ESTADO_PREPARO:
-        titulo = big_font.render("PREPARE-SE", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+        tela.blit(imagem_preparo, (0, 0))
 
-        if modo_jogo == 'campanha':
-            instr1 = font.render("CAMPANHA. Pressione 'E' para iniciar", True, BRANCO)
-        else:
-            instr1 = font.render("INFINITO. Pressione 'E' para iniciar", True, BRANCO)
-
-        instr3 = font.render("Pressione ESC ou clique no botão para voltar ao menu", True, BRANCO)
-        tela.blit(instr1, ((LARGURA - instr1.get_width()) // 2, 220))
-        tela.blit(instr3, ((LARGURA - instr3.get_width()) // 2, 280))
-
+        botao_iniciar_jogo.desenhar(tela)
         botao_voltar_menu_preparo.desenhar(tela)
 
     elif estado == ESTADO_INFO:
+        tela.blit(imagem_info, (0, 0))
         linhas = [
             "Como jogar:",
             "- Aperte as setas ou WASD para mover o jogador.",
@@ -933,24 +986,30 @@ while executando:
             "- Cada colisão com um carro faz perder 1 vida.",
             "- Se perder suas as vidas, aparece Game Over com a pontuação.",
             "",
-            "Clique para voltar ao menu."
+            "Aperte ESC para voltar ao menu."
         ]
         y = 120
         for ln in linhas:
-            txt = font.render(ln, True, BRANCO)
+            txt = info_font.render(ln, True, PRETO)
             tela.blit(txt, (40,y))
             y += 36
 
     elif estado == ESTADO_JOGANDO:
         if modo_jogo == 'campanha':
+            # Desenhar área segura (grama)
             topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
-            pygame.draw.rect(tela, AZUL_ESCURO, topo)
+            tela.blit(imagem_area_segura, (0, 0))
 
+            # Desenhar faixas com a imagem de rua
             num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
             for i in range(num_faixas_para_desenhar):
-                r = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
-                pygame.draw.rect(tela, CINZA, r)
-                pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+                faixa_rect = pygame.Rect(0, TOPO_FAIXA + i*(FAIXA_ALTURA+ESPACAMENTO_FAIXA), LARGURA, FAIXA_ALTURA)
+                # Desenha a imagem de rua com tile
+                for x in range(0, LARGURA, imagem_faixa.get_width()):
+                    tela.blit(imagem_faixa, (x, faixa_rect.top))
+
+            # Atualizar imagem do jogador
+            jog.update_imagem()
 
             for c in carros:
                 tela.blit(c.surf, c.rect)
@@ -968,7 +1027,8 @@ while executando:
             tela.blit(texto_tempo, (x_tempo, 10))
         else:
             topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
-            pygame.draw.rect(tela, AZUL_ESCURO, topo)
+            tela.blit(imagem_area_segura, (0, 0))
+            # Não preenche com fill, deixa a grama à vista
 
             num_faixas_para_desenhar = len(faixa_controladores) if 'faixa_controladores' in globals() else QTD_FAIXAS
             for i, ctrl in enumerate(faixa_controladores):
@@ -977,8 +1037,12 @@ while executando:
                 r = pygame.Rect(0, int(r_tela_top), LARGURA, FAIXA_ALTURA)
                 if r.bottom < 0 or r.top > ALTURA:
                     continue
-                pygame.draw.rect(tela, CINZA, r)
-                pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+                # Desenha a imagem de rua com tile
+                for x in range(0, LARGURA, imagem_faixa.get_width()):
+                    tela.blit(imagem_faixa, (x, int(r_tela_top)))
+
+            # Atualizar imagem do jogador
+            jog.update_imagem()
 
             for c in carros:
                 tela.blit(c.surf, (c.rect.x, c.rect.y - camera_y))
@@ -990,15 +1054,16 @@ while executando:
 
     elif estado == ESTADO_PAUSADO:
         topo = pygame.Rect(0, 0, LARGURA, TOPO_FAIXA)
-        pygame.draw.rect(tela, AZUL_ESCURO, topo)
+        tela.blit(imagem_area_segura, (0, 0))
         for i, ctrl in enumerate(faixa_controladores):
             r_world_top = ctrl.centro_y - FAIXA_ALTURA//2
             r_tela_top = r_world_top - camera_y
             r = pygame.Rect(0, int(r_tela_top), LARGURA, FAIXA_ALTURA)
             if r.bottom < 0 or r.top > ALTURA:
                 continue
-            pygame.draw.rect(tela, CINZA, r)
-            pygame.draw.line(tela, PRETO, (0, r.top), (LARGURA, r.top), 2)
+            # Desenha a imagem de rua com tile
+            for x in range(0, LARGURA, imagem_faixa.get_width()):
+                tela.blit(imagem_faixa, (x, int(r_tela_top)))
         for c in carros:
             tela.blit(c.surf, (c.rect.x, c.rect.y - camera_y))
         tela.blit(jog.surf, (jog.rect.x, jog.rect.y - camera_y))
@@ -1017,41 +1082,37 @@ while executando:
         tela.blit(instr, ((LARGURA - instr.get_width()) // 2, 480))
 
     elif estado == ESTADO_VITORIA:
-        titulo = big_font.render("VOCÊ VENCEU!", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+        tela.blit(imagem_vitoria, (0, 0))
 
-        t = font.render(f"Seu tempo: {tempo_vitoria_secs:.3f}s", True, BRANCO)
-        tela.blit(t, ((LARGURA - t.get_width()) // 2, 200))
+        t = vitoria_tempo_font.render(f"Seu tempo: {tempo_vitoria_secs:.3f}s", True, BRANCO)
+        tela.blit(t, ((LARGURA - t.get_width()) // 2, 345))
 
-        prompt = font.render("Digite seu nome e pressione Enter:", True, BRANCO)
-        tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 260))
+        prompt = vitoria_font.render("Digite seu nome e pressione Enter:", True, PRETO)
+        tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 405))
 
-        box = pygame.Rect((LARGURA//2 - 200, 320, 400, 40))
+        box = pygame.Rect((LARGURA//2 - 200, 440, 400, 40))
         pygame.draw.rect(tela, (240,240,240), box)
         pygame.draw.rect(tela, PRETO, box, 2)
         name_surf = font.render(nome_input, True, PRETO)
         tela.blit(name_surf, (box.x + 8, box.y + 8))
 
     elif estado == ESTADO_RANKING:
+        tela.blit(imagem_ranking, (0, 0))
         entries = carregar_ranking()
-        titulo = big_font.render("RANKING", True, BRANCO)
 
         entry_surfs = []
         for idx, e in enumerate(entries, start=1):
             line = f"{idx}. {e['name']} - {e['time']:.3f}s"
-            entry_surfs.append(rank_font.render(line, True, BRANCO))
+            entry_surfs.append(rank_font_campanha.render(line, True, PRETO))
 
-        spacing = 28
-        title_spacing = 20
-        total_height = titulo.get_height() + (title_spacing if entry_surfs else 0) + len(entry_surfs) * spacing
+        spacing = 32
+        total_height = len(entry_surfs) * spacing
         desloc_y = 40
-        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y)
+        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y + 32)
 
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, start_y))
-
-        y = start_y + titulo.get_height() + title_spacing
+        y = start_y
         for surf in entry_surfs:
-            x = (LARGURA - surf.get_width()) // 2
+            x = (LARGURA - surf.get_width()) // 2 + 40
             tela.blit(surf, (x, y))
             y += spacing
 
@@ -1059,41 +1120,37 @@ while executando:
         botao_voltar_menu_ranking.desenhar(tela)
 
     elif estado == ESTADO_INFINITO_NOME:
-        titulo = big_font.render("Você morreu", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+        tela.blit(imagem_gameover_infinito, (0, 0))
 
-        t = font.render(f"Sua pontuação: {pontuacao_infinito} pontos", True, BRANCO)
-        tela.blit(t, ((LARGURA - t.get_width()) // 2, 180))
+        t = vitoria_tempo_font.render(f"Sua pontuação: {pontuacao_infinito} pontos", True, BRANCO)
+        tela.blit(t, ((LARGURA - t.get_width()) // 2, 340))
 
-        prompt = font.render("Digite seu nome e pressione Enter:", True, BRANCO)
-        tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 240))
+        prompt = vitoria_font.render("Digite seu nome e pressione Enter:", True, PRETO)
+        tela.blit(prompt, ((LARGURA - prompt.get_width()) // 2, 425))
 
-        box = pygame.Rect((LARGURA//2 - 200, 300, 400, 40))
+        box = pygame.Rect((LARGURA//2 - 200, 470, 400, 40))
         pygame.draw.rect(tela, (240,240,240), box)
         pygame.draw.rect(tela, PRETO, box, 2)
         name_surf = font.render(nome_input, True, PRETO)
         tela.blit(name_surf, (box.x + 8, box.y + 8))
 
     elif estado == ESTADO_RANKING_INFINITO:
+        tela.blit(imagem_ranking, (0, 0))
         entries = carregar_ranking_infinito()
-        titulo = big_font.render("RANKING", True, BRANCO)
 
         entry_surfs = []
         for idx, e in enumerate(entries, start=1):
             line = f"{idx}. {e['name']} - {e['score']} pts"
-            entry_surfs.append(rank_font.render(line, True, BRANCO))
+            entry_surfs.append(rank_font_campanha.render(line, True, PRETO))
 
-        spacing = 28
-        title_spacing = 20
-        total_height = titulo.get_height() + (title_spacing if entry_surfs else 0) + len(entry_surfs) * spacing
+        spacing = 32
+        total_height = len(entry_surfs) * spacing
         desloc_y = 40
-        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y)
+        start_y = max(20, (ALTURA - total_height) // 2 - desloc_y + 32)
 
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, start_y))
-
-        y = start_y + titulo.get_height() + title_spacing
+        y = start_y
         for surf in entry_surfs:
-            x = (LARGURA - surf.get_width()) // 2
+            x = (LARGURA - surf.get_width()) // 2 + 40
             tela.blit(surf, (x, y))
             y += spacing
 
@@ -1101,11 +1158,7 @@ while executando:
         botao_voltar_menu_ranking_inf.desenhar(tela)
 
     elif estado == ESTADO_GAMEOVER:
-        titulo = big_font.render("GAME OVER", True, BRANCO)
-        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
-
-        mensagem = font.render("Você perdeu todas as vidas.", True, BRANCO)
-        tela.blit(mensagem, ((LARGURA - mensagem.get_width()) // 2, 200))
+        tela.blit(imagem_gameover, (0, 0))
 
         botao_reiniciar_gameover.desenhar(tela)
         botao_voltar_menu_gameover.desenhar(tela)
