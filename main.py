@@ -1,56 +1,67 @@
 import pygame, sys, random, json, os
 pygame.init()
 
+# Constantes e configurações
 LARGURA, ALTURA = 640, 800
 FPS = 60
 
+# Configurações do jogo
 TAM_JOGADOR = 40
 PASSO_X = TAM_JOGADOR
 PASSO_Y = 70
 JOGADOR_POS_INICIAL = (LARGURA // 2, ALTURA - TAM_JOGADOR - 10)
 COR_JOGADOR = (50, 200, 50)
 
+# Configurações das faixas e carros
 QTD_FAIXAS = 7
 FAIXA_ALTURA = PASSO_Y
 TOPO_FAIXA = 80
 ESPACAMENTO_FAIXA = 0
-
 CARRO_LARGURA = TAM_JOGADOR
 CARRO_ALTURA = TAM_JOGADOR
 CARRO_COR = (220, 50, 50)
-
 ESPACAMENTO_GRUPO = 6
 
+# Cores
 BRANCO = (255,255,255)
 PRETO = (0,0,0)
 CINZA = (120,120,120)
 AZUL_ESCURO = (10,10,50)
 FUNDO = (30,160,200)
 
+# Estados do jogo
 ESTADO_MENU = "menu"
+ESTADO_PREPARO = "preparo"
 ESTADO_JOGANDO = "jogando"
 ESTADO_INFO = "info"
 ESTADO_VITORIA = "vitoria"
 ESTADO_RANKING = "ranking"
 ESTADO_GAMEOVER = "gameover"
 ESTADO_PAUSADO = "pausado"
-
+PASTA_RANKING = "ranking.json"
 estado = ESTADO_MENU
 
+# Inicialização do Pygame
 tela = pygame.display.set_mode((LARGURA, ALTURA))
 pygame.display.set_caption("Jogo")
 clock = pygame.time.Clock()
 font = pygame.font.SysFont(None, 24)
 big_font = pygame.font.SysFont(None, 56)
 
+# Variáveis de tempo
 inicio_tempo_ms = None
 pausa_inicio_ms = None
 
+# Botões
 BTN_W, BTN_H = 220, 56
 BTN_SPACING = 24
 center_x = LARGURA // 2
 
-PASTA_RANKING = "ranking.json"
+# Variáveis auxiliares
+tempo_vitoria_secs = 0.0
+nome_input = ""
+
+# Padrões de faixas por fase
 PADROES_FAIXA_POR_FASE = {
     1: [
         [(4, 1000), (2, 1000), (2, 1000)],
@@ -74,11 +85,13 @@ PADROES_FAIXA_POR_FASE = {
     ]
 }
 
+# Velocidades das faixas por fase
 VELOCIDADES_FAIXA_POR_FASE = {
     1: [200, 180, 160, 140, 120, 100, 80],
     2: [240, 240, 220, 200, 180, 160, 160, 140, 120]
 }
 
+# Classes do jogo
 class Botao:
     def __init__(self, rect, texto):
         self.rect = pygame.Rect(rect)
@@ -158,6 +171,7 @@ class FaixaController:
             self.formato_idx = (self.formato_idx + 1) % len(self.formato)
             self.estado = "waiting"
 
+# Funções auxiliares
 def criacao_inicial_grupos(grupo_carros, controladores):
     for ctrl in controladores:
         conta, espera = ctrl.formato[ctrl.formato_idx]
@@ -250,30 +264,29 @@ def salvar_ranking(entries):
     except Exception as e:
         print("Erro salvando ranking:", e)
 
+# Inicialização do jogo
 jog = Jogador(JOGADOR_POS_INICIAL)
 jog.reseta_comeco()
 
+# Grupos e controladores
 carros = pygame.sprite.Group()
 fase = 1
 faixa_controladores = construir_controladores_por_fase(fase)
 criacao_inicial_grupos(carros, faixa_controladores)
 
+# Botões
 btn_jogar = Botao((center_x - BTN_W//2, 320+ (BTN_H + 28)/20, BTN_W, BTN_H), "Jogar")
 btn_info = Botao((center_x - BTN_W//2, 320 + BTN_H + 28, BTN_W, BTN_H), "Informações")
 btn_sair = Botao((center_x - BTN_W//2, 320 + (BTN_H + 28)*2, BTN_W, BTN_H), "Sair")
-
 btn_reiniciar_ranking = Botao((60, ALTURA - 120, 200, 48), "Reinício rápido (R)")
 btn_voltar_menu_ranking = Botao((LARGURA - 260, ALTURA - 120, 200, 48), "Voltar ao Menu (ESC)")
-
 btn_reiniciar_gameover = Botao((center_x - 240, 360, 200, 56), "Reinício rápido (R)")
 btn_voltar_menu_gameover = Botao((center_x + 40, 360, 200, 56), "Voltar ao Menu (ESC)")
-
 btn_continuar = Botao((center_x - BTN_W//2, 300, BTN_W, BTN_H), "Continuar (ESC)")
 btn_voltar_menu_pausa = Botao((center_x - BTN_W//2, 300 + BTN_H + 20, BTN_W, BTN_H), "Voltar ao Menu")
+btn_voltar_menu_preparo = Botao((center_x - BTN_W//2, 420, BTN_W, BTN_H), "Voltar ao Menu (ESC)")
 
-tempo_vitoria_secs = 0.0
-nome_input = ""
-
+# Loop principal
 running = True
 while running:
     dt_ms = clock.tick(FPS)
@@ -350,6 +363,19 @@ while running:
                     estado = ESTADO_MENU
                     continue
 
+            if estado == ESTADO_PREPARO:
+                if event.key == pygame.K_e:
+                    fase = 1
+                    jog.vidas = 3
+                    resetar_estado_fase(fase)
+                    jog.reseta_comeco()
+                    estado = ESTADO_JOGANDO
+                    inicio_tempo_ms = pygame.time.get_ticks()
+                    continue
+                if event.key == pygame.K_ESCAPE:
+                    estado = ESTADO_MENU
+                    continue
+
             if estado == ESTADO_JOGANDO:
                 if event.key == pygame.K_ESCAPE:
                     estado = ESTADO_PAUSADO
@@ -374,12 +400,7 @@ while running:
             mx,my = event.pos
             if estado == ESTADO_MENU:
                 if btn_jogar.clicado(mx,my):
-                    fase = 1
-                    resetar_estado_fase(fase)
-                    jog.reseta_comeco()
-                    jog.vidas = 3
-                    estado = ESTADO_JOGANDO
-                    inicio_tempo_ms = pygame.time.get_ticks()
+                    estado = ESTADO_PREPARO
                 elif btn_info.clicado(mx,my):
                     estado = ESTADO_INFO
                 elif btn_sair.clicado(mx,my):
@@ -417,6 +438,9 @@ while running:
                     pausa_inicio_ms = None
                     inicio_tempo_ms = None
                     estado = ESTADO_MENU
+            elif estado == ESTADO_PREPARO:
+                if btn_voltar_menu_preparo.clicado(mx, my):
+                    estado = ESTADO_MENU
 
     if estado == ESTADO_JOGANDO:
         for ctrl in faixa_controladores:
@@ -452,11 +476,23 @@ while running:
         btn_info.desenhar(tela)
         btn_sair.desenhar(tela)
 
+    elif estado == ESTADO_PREPARO:
+        titulo = big_font.render("PREPARE-SE", True, BRANCO)
+        tela.blit(titulo, ((LARGURA - titulo.get_width()) // 2, 120))
+
+        instr1 = font.render("Pressione 'E' para iniciar o jogo", True, BRANCO)
+        instr2 = font.render("Pressione ESC ou clique no botão para voltar ao menu", True, BRANCO)
+        tela.blit(instr1, ((LARGURA - instr1.get_width()) // 2, 220))
+        tela.blit(instr2, ((LARGURA - instr2.get_width()) // 2, 260))
+
+        btn_voltar_menu_preparo.desenhar(tela)
+
     elif estado == ESTADO_INFO:
         linhas = [
             "Como jogar:",
             "- Use as setas ou WASD para mover por passos (um passo por tecla).",
             "- Pressione ESC durante o jogo para pausar.",
+            "- No preparo pressione 'E' para começar.",
             "- Objetivo: evitar os carros e atravessar as faixas.",
             "- Clique para voltar ao Menu."
         ]
